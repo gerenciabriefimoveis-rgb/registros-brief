@@ -91,18 +91,39 @@ $('busca').addEventListener('input', function () {
     var n = semAcento(u.nome + ' ' + u.grupo);
     return partes.every(function (p) { return n.indexOf(p) >= 0; });
   }).slice(0, 12);
-  if (!achou.length) { box.innerHTML = '<div class="contagem">Nada encontrado.</div>'; return; }
+  if (!achou.length) box.innerHTML = '<div class="contagem">Nada encontrado.</div>';
   achou.forEach(function (u) {
     var b = document.createElement('button');
-    b.innerHTML = esc(nomeCurto(u.nome)) + (u.grupo ? '<br><small>' + esc(u.grupo) + '</small>' : '');
+    b.innerHTML = esc(nomeCurto(u.nome)) + (u.grupo && u.nome.indexOf(u.grupo) < 0 ? '<br><small>' + esc(u.grupo) + '</small>' : '');
     b.onclick = function () { escolherUnidade(u); };
     box.appendChild(b);
   });
+  if (cfg && cfg.outraUnidade) {
+    var o = document.createElement('button');
+    o.className = 'outra';
+    o.innerHTML = '➕ Outra unidade<br><small>não está na lista: toque para digitar</small>';
+    o.onclick = abrirOutraUnidade;
+    box.appendChild(o);
+  }
 });
+function abrirOutraUnidade() {
+  var box = $('lista');
+  box.innerHTML = '<div class="contagem">Digite a unidade e o prédio (ex.: 1513 Air Brooklin):</div>' +
+    '<input type="search" id="outraTexto" maxlength="60" autocomplete="off">' +
+    '<button class="grande" id="outraOk">Usar esta unidade</button>';
+  var inp = $('outraTexto');
+  inp.value = $('busca').value.trim();
+  inp.focus();
+  $('outraOk').onclick = function () {
+    var t = inp.value.trim();
+    if (t.length < 2) { inp.focus(); return; }
+    escolherUnidade({ id: 'outra', nome: t, grupo: 'Outra unidade (digitada)' });
+  };
+}
 function escolherUnidade(u) {
   unidade = u;
   $('unidadeNome').textContent = nomeCurto(u.nome);
-  $('unidadeGrupo').textContent = u.grupo || '';
+  $('unidadeGrupo').textContent = u.grupo && u.nome.indexOf(u.grupo) < 0 ? u.grupo : '';
   $('buscaBox').classList.add('oculto');
   $('unidadeBox').classList.remove('oculto');
   $('aviso').textContent = '';
@@ -316,7 +337,7 @@ function enviar() {
   window.scrollTo(0, 0);
   var total = fila.length, feitos = 0, erros = [], reg;
 
-  api('iniciar', { unidadeId: unidade.id, tipo: tipo, observacao: obs, responsavel: responsavel }).then(function (r) {
+  api('iniciar', { unidadeId: unidade.id, unidadeTexto: unidade.id === 'outra' ? unidade.nome : '', tipo: tipo, observacao: obs, responsavel: responsavel }).then(function (r) {
     reg = r;
     $('envioTexto').textContent = 'Enviando para ' + nomeCurto(r.unidade) + '. Não feche o app.';
     var fila2 = fila.slice();
