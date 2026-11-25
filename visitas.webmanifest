@@ -1,0 +1,26 @@
+{
+    "name":  "Visitas Brief",
+    "short_name":  "Visitas",
+    "lang":  "pt-BR",
+    "start_url":  "./visitas.html",
+    "scope":  "./",
+    "id":  "./visitas.html",
+    "display":  "standalone",
+    "orientation":  "portrait",
+    "background_color":  "#f4f6f9",
+    "theme_color":  "#1f5fbf",
+    "icons":  [
+                  {
+                      "purpose":  "any maskable",
+                      "type":  "image/png",
+                      "sizes":  "192x192",
+                      "src":  "icone-visitas-192.png"
+                  },
+                  {
+                      "purpose":  "any maskable",
+                      "type":  "image/png",
+                      "sizes":  "512x512",
+                      "src":  "icone-visitas-512.png"
+                  }
+              ]
+}
