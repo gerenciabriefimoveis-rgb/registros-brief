@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="theme-color" content="#676767">
+<title>Vistorias (TESTE)</title>
+
+<link rel="icon" href="icone-vistorias-192.png">
+<link rel="apple-touch-icon" href="icone-vistorias-192.png">
+<style>
+  :root { --azul:#676767; --verde:#1e8e3e; --vermelho:#c5221f; --cinza:#5f6368; --fundo:#f4f6f9; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--fundo); color:#202124; font-size:18px; }
+  header { background:var(--azul); color:#fff; padding:14px 16px; font-size:20px; font-weight:600; position:sticky; top:0; z-index:2; }
+  main { padding:12px; max-width:560px; margin:0 auto; }
+  .card { background:#fff; border-radius:14px; padding:16px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .passo { font-size:14px; color:var(--cinza); text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
+  select { width:100%; font-size:19px; padding:14px; border:2px solid #dadce0; border-radius:10px; background:#fff; font-family:inherit; color:#202124; }
+  #respExtra, #outraTexto { margin-top:8px; }
+  .lista button.outra { border:2px dashed #9aa0a6; color:var(--azul); font-weight:600; }
+  input[type=search], input[type=date], textarea { width:100%; font-size:20px; padding:14px; border:2px solid #dadce0; border-radius:10px; font-family:inherit; }
+  textarea { font-size:18px; min-height:90px; }
+  .lista button { display:block; width:100%; text-align:left; font-size:18px; padding:14px; margin-top:8px; border:1px solid #dadce0; background:#fff; border-radius:10px; color:#202124; }
+  .lista small, .grupo { color:var(--cinza); font-size:15px; }
+  .escolhida { font-size:24px; font-weight:700; color:var(--azul); line-height:1.25; }
+  .link { background:none; border:none; color:var(--azul); font-size:16px; text-decoration:underline; padding:8px 0; }
+  .tipos { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  .tipos button { font-size:16px; padding:14px 8px; border:2px solid #dadce0; background:#fff; border-radius:12px; color:#202124; }
+  .tipos button.sel { border-color:var(--azul); font-weight:700; color:var(--azul); }
+  .grande { display:block; width:100%; font-size:20px; font-weight:600; padding:18px; border:none; border-radius:12px; color:#fff; background:var(--azul); margin-top:8px; text-align:center; font-family:inherit; }
+  .grande.clara { opacity:.85; }
+  .grande.verde { background:var(--verde); }
+  .grande.vermelho { background:var(--vermelho); }
+  .grande.cinza { background:#9aa0a6; }
+  label.grande { cursor:pointer; }
+  input[type=file] { display:none; }
+  .miniaturas { display:flex; flex-wrap:wrap; gap:6px; margin-top:10px; }
+  .miniaturas div { width:64px; height:64px; border-radius:8px; background:#e8eaed center/cover no-repeat; font-size:11px; display:flex; align-items:center; justify-content:center; }
+  .contagem { margin-top:8px; color:var(--cinza); font-size:16px; }
+  .audios div { padding:8px 0; border-bottom:1px solid #eee; font-size:16px; }
+  .barra { height:18px; background:#e8eaed; border-radius:9px; overflow:hidden; margin:10px 0; }
+  .barra div { height:100%; width:0; background:var(--verde); transition:width .3s; }
+  .ok { font-size:22px; font-weight:700; color:var(--verde); }
+  .erro { color:var(--vermelho); font-weight:600; }
+  .tipos.dois button { font-size:18px; padding:20px 8px; }
+  .botoesOcorr { display:grid; gap:8px; }
+  .botoesOcorr button { font-size:18px; padding:14px; border:2px dashed #dadce0; background:#fff; border-radius:12px; text-align:left; color:#202124; }
+  .ocorrencia { border:2px solid #f2b705; background:#fffbea; border-radius:12px; padding:12px; margin-top:10px; }
+  .ocTopo { display:flex; justify-content:space-between; align-items:center; font-size:18px; }
+  .ocorrencia textarea { min-height:60px; font-size:17px; margin-top:8px; }
+  .ocBotoes { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:8px; }
+  .peq { display:block; font-size:15px; font-weight:600; padding:12px 4px; border:none; border-radius:10px; color:#fff; background:var(--azul); text-align:center; font-family:inherit; }
+  .peq.vermelho { background:var(--vermelho); }
+  .peq.cinza, .grande.cinza { background:#9aa0a6; }
+  .oculto { display:none !important; }
+  :root { --azul:#5E5E5E; --fundo:#F6F5F1; --cinza:#6b6b6b; }
+  header { background:#fff; color:#5E5E5E; display:flex; align-items:center; gap:12px; border-bottom:4px solid #DEBF60; padding:10px 16px; }
+  header img { height:34px; width:auto; }
+  header .app { font-size:14px; font-weight:700; color:#8A6D1E; text-transform:uppercase; letter-spacing:.06em; line-height:1.2; }
+  .grande { background:linear-gradient(135deg,#7A7A7A 0%,#5E5E5E 60%,#4A4A4A 100%); }
+  .grande.clara { background:#fff; color:#4A4A4A; border:2px solid #DEBF60; opacity:1; }
+  .grande.verde { background:linear-gradient(135deg,#E6C873 0%,#DEBF60 55%,#C9A846 100%); color:#3A3A3A; }
+  .grande.vermelho, .peq.vermelho { background:#3F3F3F; }
+  .peq { background:#5E5E5E; }
+  .tipos { grid-template-columns:1fr; }
+  .tipos button.sel { border-color:#DEBF60; color:#3A3A3A; background:#FBF5E3; }
+  .escolhida { color:#3A3A3A; }
+  .link { color:#8A6D1E; }
+  .botoesOcorr button { border-color:#DEBF60; font-weight:600; }
+  .ocorrencia { border-color:#DEBF60; background:#FBF5E3; }
+  .barra div { background:linear-gradient(90deg,#E6C873,#C9A846); }
+  input:focus, textarea:focus { outline:none; border-color:#DEBF60; }
+</style>
+</head>
+<body data-modo="vistorias_teste">
+<header><img src="logo-brief.png" alt="Brief"><div class="app">Vistorias e<br>manuten&ccedil;&otilde;es (TESTE)</div></header>
+<main>
+  <div id="telaForm">
+    <div class="card">
+      <div class="passo"><span class="num">1.</span> Qual unidade?</div>
+      <div id="buscaBox">
+        <input type="search" id="busca" placeholder="Digite o número (ex.: 707)" autocomplete="off">
+        <div class="contagem" id="carregando">Carregando unidades…</div>
+        <div class="lista" id="lista"></div>
+      </div>
+      <div id="unidadeBox" class="oculto">
+        <div class="escolhida" id="unidadeNome"></div>
+        <div class="grupo" id="unidadeGrupo"></div>
+        <button class="link" onclick="trocarUnidade()">Trocar unidade</button>
+      </div>
+    </div>
+
+    <div class="card oculto" id="cardData">
+      <div class="passo"><span class="num">2.</span> Data da visita</div>
+      <input type="date" id="dataVisita">
+    </div>
+
+    <div class="card oculto" id="cardResp">
+      <div class="passo"><span class="num">2.</span> <span id="tResp">Quem fez a faxina?</span></div>
+      <select id="resp"></select>
+      <input type="search" id="respExtra" class="oculto" placeholder="Digite seu nome completo" autocomplete="off" maxlength="60">
+    </div>
+
+    <div class="card">
+      <div class="passo"><span class="num">2.</span> O que &eacute; esta visita?</div>
+      <input type="search" id="tipoTexto" placeholder="" autocomplete="off" maxlength="80">
+      <div class="contagem" id="tipoDica">Ou toque num atalho:</div>
+      <div class="tipos" id="tipos"></div>
+    </div>
+
+    <div class="card oculto" id="cardOcorr">
+      <div class="passo"><span class="num">3.</span> <span id="tOcorr">Encontrou alguma coisa? (se não, pule)</span></div>
+      <div class="botoesOcorr" id="botoesOcorr"></div>
+      <div id="listaOcorr"></div>
+    </div>
+
+    <div class="card">
+      <div class="passo"><span class="num">3.</span> Fotos e vídeos</div>
+      <label class="grande" for="camera">📷 Tirar foto</label>
+      <input type="file" id="camera" accept="image/*" capture="environment">
+      <label class="grande clara" for="galeria">🖼️ Escolher várias da galeria</label>
+      <input type="file" id="galeria" accept="image/*,video/*" multiple>
+      <div class="contagem" id="contagemFotos">Nenhuma foto ainda.</div>
+      <div class="miniaturas" id="miniaturas"></div>
+    </div>
+
+    <div class="card">
+      <div class="passo"><span class="num">4.</span> Áudio (fale o que viu)</div>
+      <button class="grande vermelho" id="btnGravar" onclick="alternarGravacao()">● Gravar áudio</button>
+      <div class="audios" id="audios"></div>
+    </div>
+
+    <div class="card">
+      <div class="passo"><span class="num">5.</span> Observação (opcional)</div>
+      <textarea id="obs" placeholder="Escreva algo se quiser"></textarea>
+    </div>
+
+    <div id="aviso" class="erro" style="margin:0 4px 8px"></div>
+    <button class="grande verde" onclick="enviar()">✅ Enviar tudo</button>
+    <div style="height:30px"></div>
+  </div>
+
+  <div id="telaEnvio" class="card oculto">
+    <div class="passo">Enviando</div>
+    <div id="envioTexto">Não feche o app.</div>
+    <div class="barra"><div id="barra"></div></div>
+    <div id="envioDetalhe" class="contagem"></div>
+  </div>
+
+  <div id="telaFim" class="card oculto">
+    <div class="ok" id="fimTitulo"></div>
+    <div id="fimTexto" style="margin-top:10px"></div>
+    <button class="grande" onclick="location.reload()">Novo registro</button>
+  </div>
+</main>
+<script src="app-teste.js"></script>
+</body>
+</html>
