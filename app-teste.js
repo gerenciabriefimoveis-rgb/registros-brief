@@ -383,6 +383,59 @@ function paraBase64(blob) {
   });
 }
 
+// diminui a foto no próprio celular antes de enviar (lado maior até 2000 px, JPEG 85%):
+// foto de 4-6 MB vira ~0,5-1 MB, o envio fica muito mais rápido e não cai no meio
+var FOTO_MAX_PX = 2000, FOTO_QUALIDADE = 0.85;
+function comprimirFoto(item) {
+  var f = item.file;
+  if (item.kind !== 'foto' || !/^image\/(jpeg|jpg|png|webp)$/i.test(f.type || '') || f.size < 700 * 1024) {
+    return Promise.resolve({ blob: f, mime: item.mime, nome: null });
+  }
+  return new Promise(function (ok) {
+    var url = URL.createObjectURL(f), img = new Image();
+    img.onload = function () {
+      try {
+        var w = img.naturalWidth, h = img.naturalHeight, esc = Math.min(1, FOTO_MAX_PX / Math.max(w, h));
+        var c = document.createElement('canvas');
+        c.width = Math.round(w * esc); c.height = Math.round(h * esc);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) {
+          if (b && b.size < f.size) ok({ blob: b, mime: 'image/jpeg', nome: null });
+          else ok({ blob: f, mime: item.mime, nome: null });
+        }, 'image/jpeg', FOTO_QUALIDADE);
+      } catch (e) { URL.revokeObjectURL(url); ok({ blob: f, mime: item.mime, nome: null }); }
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); ok({ blob: f, mime: item.mime, nome: null }); };
+    img.src = url;
+  });
+}
+
+// tenta até 4 vezes, esperando 3 s, 8 s e 15 s entre as tentativas (sinal fraco na rua)
+function esperar(ms) { return new Promise(function (ok) { setTimeout(ok, ms); }); }
+function enviarComTentativas(dados) {
+  var esperas = [3000, 8000, 15000];
+  function tentar(n) {
+    return api('arquivo', dados).catch(function (e) {
+      if (n >= esperas.length) throw e;
+      return esperar(esperas[n]).then(function () { return tentar(n + 1); });
+    });
+  }
+  return tentar(0);
+}
+
+// mantém a tela acesa durante o envio (se a tela apagar, o celular pausa o envio)
+var travaTela = null;
+function manterTelaAcesa(ligar) {
+  try {
+    if (ligar && navigator.wakeLock) navigator.wakeLock.request('screen').then(function (t) { travaTela = t; }).catch(function () {});
+    else if (!ligar && travaTela) { travaTela.release(); travaTela = null; }
+  } catch (e) {}
+}
+document.addEventListener('visibilitychange', function () {
+  if (enviando && document.visibilityState === 'visible') manterTelaAcesa(true);
+});
+
 function enviar() {
   if (enviando) return;
   if (gravando) { $('aviso').textContent = 'Pare a gravação do áudio antes de enviar.'; return; }
@@ -455,22 +508,43 @@ function enviar() {
     locacao: locacao ? locacao.nome : '', entradaId: entradaId }).then(function (r) {
     reg = r;
     $('envioTexto').textContent = 'Enviando para ' + nomeCurto(r.unidade) + '. Não feche o app.';
-    var fila2 = fila.slice();
-    function proximo() {
-      var item = fila2.shift();
-      if (!item) return Promise.resolve();
-      return paraBase64(item.a.file).then(function (b64) {
-        var dados = { pastaId: reg.pastaId, subpasta: item.sub, nome: item.nome, mime: item.a.mime, base64: b64 };
-        return api('arquivo', dados).catch(function () { return api('arquivo', dados); });
-      }).then(function () {}, function () { erros.push(item.nome); }).then(function () {
-        feitos++;
-        $('barra').style.width = Math.round(feitos / total * 100) + '%';
-        $('envioDetalhe').textContent = feitos + ' de ' + total + ' arquivos';
-        return proximo();
+    manterTelaAcesa(true);
+    var falhas = [];
+    function rodada(lista) {
+      var fila2 = lista.slice();
+      function proximo() {
+        var item = fila2.shift();
+        if (!item) return Promise.resolve();
+        return comprimirFoto(item.a).then(function (c) {
+          return paraBase64(c.blob).then(function (b64) {
+            var nome = c.mime === 'image/jpeg' && !/\.jpe?g$/i.test(item.nome) ? item.nome.replace(/\.[^.]*$/, '') + '.jpg' : item.nome;
+            return enviarComTentativas({ pastaId: reg.pastaId, subpasta: item.sub, nome: nome, mime: c.mime, base64: b64 });
+          });
+        }).then(function () { feitos++; }, function () { falhas.push(item); }).then(function () {
+          $('barra').style.width = Math.round(feitos / total * 100) + '%';
+          $('envioDetalhe').textContent = feitos + ' de ' + total + ' arquivos' + (falhas.length ? ' (' + falhas.length + ' para tentar de novo)' : '');
+          return proximo();
+        });
+      }
+      return Promise.all(lista.length ? [proximo(), proximo()] : []).then(function () {
+        if (!falhas.length) return;
+        // sobrou arquivo sem enviar: pergunta se tenta de novo (na mesma pasta) ou finaliza assim
+        return new Promise(function (ok) {
+          var box = document.createElement('div');
+          box.innerHTML = '<div class="erro" style="margin-top:10px">' + falhas.length + ' arquivo(s) não subiram (internet fraca?). ' +
+            'Os outros ' + feitos + ' já estão salvos.</div>' +
+            '<button class="grande">🔁 Tentar de novo os que faltaram</button>' +
+            '<button class="grande cinza">Finalizar sem eles</button>';
+          $('telaEnvio').appendChild(box);
+          var bts = box.querySelectorAll('button');
+          bts[0].onclick = function () { box.remove(); var l = falhas; falhas = []; ok(rodada(l)); };
+          bts[1].onclick = function () { box.remove(); erros = falhas.map(function (x) { return x.nome; }); ok(); };
+        });
       });
     }
-    return Promise.all(total ? [proximo(), proximo()] : []);
+    return rodada(fila);
   }).then(function () {
+    manterTelaAcesa(false);
     // REGISTROS conta só o material da faxina; cada ocorrência tem a própria contagem
     return api('finalizar', { pastaId: reg.pastaId, unidade: reg.unidade, predio: reg.predio || '', tipo: reg.tipo, responsavel: responsavel, dataVisita: dataVisita,
       fotos: qtd(arquivos, 'foto'), videos: qtd(arquivos, 'video'), audios: qtd(arquivos, 'audio'),
@@ -508,6 +582,7 @@ function enviar() {
     }
   }).catch(function (e) {
     enviando = false;
+    manterTelaAcesa(false);
     $('telaEnvio').classList.add('oculto');
     $('telaForm').classList.remove('oculto');
     $('aviso').textContent = 'Não consegui enviar: ' + (e && e.message ? e.message : e) + ' Verifique a internet e toque em Enviar de novo.';
