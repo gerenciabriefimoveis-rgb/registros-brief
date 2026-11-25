@@ -18,6 +18,9 @@
   .passo { font-size:14px; color:var(--cinza); text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
   select { width:100%; font-size:19px; padding:14px; border:2px solid #dadce0; border-radius:10px; background:#fff; font-family:inherit; color:#202124; }
   #respExtra, #outraTexto { margin-top:8px; }
+  #checkLista label { display:flex; align-items:center; gap:12px; font-size:18px; padding:12px 4px; border-bottom:1px solid #eee; }
+  #checkLista label:last-child { border-bottom:none; }
+  #checkLista input { width:28px; height:28px; flex:none; accent-color:var(--azul); }
   #entradaBox select { margin-top:6px; font-size:16px; padding:10px; }
   #entradaBox a, #fimComparativo a { color:var(--azul); font-weight:600; }
   #fimComparativo { margin-top:14px; padding:10px; border-radius:10px; background:#f1f3f4; font-size:16px; }
@@ -148,6 +151,11 @@
     <div class="card">
       <div class="passo"><span class="num">5.</span> Observação (opcional)</div>
       <textarea id="obs" placeholder="Escreva algo se quiser"></textarea>
+    </div>
+
+    <div class="card oculto" id="cardCheck">
+      <div class="passo"><span class="num">8.</span> Checklist de limpeza (marque o que fez)</div>
+      <div id="checkLista"></div>
     </div>
 
     <div id="aviso" class="erro" style="margin:0 4px 8px"></div>

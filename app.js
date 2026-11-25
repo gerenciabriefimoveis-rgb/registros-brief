@@ -68,6 +68,16 @@ function aplicarConfig(c) {
     $('cardData').classList.remove('oculto');
   }
   if (c.responsaveis && c.responsaveis.length) montarResponsaveis(c.responsaveis);
+  if (c.checklist && c.checklist.length && $('cardCheck')) {
+    c.checklist.forEach(function (item) {
+      var l = document.createElement('label');
+      var cb = document.createElement('input'); cb.type = 'checkbox'; cb.value = item;
+      cb.onchange = function () { $('aviso').textContent = ''; };
+      l.appendChild(cb); l.appendChild(document.createTextNode(item));
+      $('checkLista').appendChild(l);
+    });
+    $('cardCheck').classList.remove('oculto');
+  }
   if (c.ocorrencias && c.ocorrencias.length) {
     $('cardOcorr').classList.remove('oculto');
     // vistorias: primeiro as fotos e o áudio da visita, depois cada manutenção separada
@@ -410,6 +420,18 @@ function enviar() {
   }
   var obs = $('obs').value.trim();
   if (!arquivos.length && !obs && !ocorrencias.length) { $('aviso').textContent = 'Mande pelo menos uma foto, um áudio ou uma observação.'; return; }
+  // checklist de limpeza: avisa o que faltou marcar e pergunta se quer enviar assim mesmo
+  var checklist = [];
+  if (cfg.checklist && cfg.checklist.length && $('checkLista')) {
+    var caixas = [].slice.call($('checkLista').querySelectorAll('input'));
+    checklist = caixas.filter(function (x) { return x.checked; }).map(function (x) { return x.value; });
+    var faltou = caixas.filter(function (x) { return !x.checked; }).map(function (x) { return x.value; });
+    if (faltou.length && !confirm('Faltou marcar no checklist:\n\n• ' + faltou.join('\n• ') + '\n\nEnviar assim mesmo?')) {
+      $('cardCheck').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('aviso').textContent = 'Confira o checklist de limpeza.';
+      return;
+    }
+  }
 
   // monta a fila: arquivos gerais + arquivos e explicação de cada ocorrência
   var fila = [];
@@ -452,7 +474,7 @@ function enviar() {
     // REGISTROS conta só o material da faxina; cada ocorrência tem a própria contagem
     return api('finalizar', { pastaId: reg.pastaId, unidade: reg.unidade, predio: reg.predio || '', tipo: reg.tipo, responsavel: responsavel, dataVisita: dataVisita,
       fotos: qtd(arquivos, 'foto'), videos: qtd(arquivos, 'video'), audios: qtd(arquivos, 'audio'),
-      erros: erros.length, observacao: obs, ocorrencias: resumo });
+      erros: erros.length, observacao: obs, ocorrencias: resumo, checklist: checklist });
   }).then(function () {
     enviando = false;
     $('telaEnvio').classList.add('oculto');
