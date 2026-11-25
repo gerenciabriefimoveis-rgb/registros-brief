@@ -569,16 +569,24 @@ function enviar() {
     if (entradaId && (cfg.compararTipos || []).indexOf(reg.tipo) >= 0) {
       var fc = $('fimComparativo');
       fc.classList.remove('oculto');
-      fc.innerHTML = '⏳ Gerando o <b>comparativo</b> com a vistoria de entrada… leva de 1 a 4 minutos. ' +
-        'Pode esperar aqui ou fechar o app: ele fica salvo na pasta da visita e na planilha.';
-      api('comparar', { pastaId: reg.pastaId }).then(function (c) {
-        fc.innerHTML = c.feito
-          ? '✅ Comparativo pronto (' + c.fotos + ' fotos analisadas): <a target="_blank" href="' + esc(c.link) + '">abrir o PDF</a>' +
-            '<br>Comparado com: <a target="_blank" href="' + esc(c.laudoLink) + '">' + esc(c.laudo) + '</a>'
-          : '⚠️ O comparativo não foi feito: ' + esc(c.motivo || '');
-      }).catch(function (e) {
-        fc.innerHTML = '⚠️ Não consegui acompanhar o comparativo (' + esc(e.message) + '). Ele pode aparecer na pasta da visita em alguns minutos.';
-      });
+      var gerarComparativo = function () {
+        fc.innerHTML = '⏳ Gerando o <b>comparativo</b> com a vistoria de entrada… leva de 1 a 4 minutos. ' +
+          '<b>Deixe o app aberto</b> até aparecer o link do PDF.';
+        manterTelaAcesa(true);
+        api('comparar', { pastaId: reg.pastaId }).then(function (c) {
+          manterTelaAcesa(false);
+          if (c.feito) {
+            fc.innerHTML = '✅ Comparativo pronto (' + c.fotos + ' fotos analisadas): <a target="_blank" href="' + esc(c.link) + '">abrir o PDF</a>' +
+              '<br>Comparado com: <a target="_blank" href="' + esc(c.laudoLink) + '">' + esc(c.laudo) + '</a>';
+          } else falhou(c.motivo || '');
+        }).catch(function (e) { manterTelaAcesa(false); falhou(e.message || String(e)); });
+      };
+      var falhou = function (motivo) {
+        fc.innerHTML = '⚠️ O comparativo não saiu: ' + esc(motivo) + '<br>As fotos já estão salvas. ' +
+          '<button class="grande" style="margin-top:10px">🔁 Tentar o comparativo de novo</button>';
+        fc.querySelector('button').onclick = gerarComparativo;
+      };
+      gerarComparativo();
     }
   }).catch(function (e) {
     enviando = false;
