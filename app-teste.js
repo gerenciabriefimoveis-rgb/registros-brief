@@ -138,13 +138,77 @@ function escolherUnidade(u) {
   $('buscaBox').classList.add('oculto');
   $('unidadeBox').classList.remove('oculto');
   $('aviso').textContent = '';
+  if (cfg.locacoes && u.id !== 'outra') carregarLocacoes(u);
 }
 function trocarUnidade() {
-  unidade = null;
+  unidade = null; locacao = null; entradaId = '';
+  if ($('cardLoc')) { $('cardLoc').classList.add('oculto'); numerarPassos(); }
   $('unidadeBox').classList.add('oculto');
   $('buscaBox').classList.remove('oculto');
   $('busca').value = ''; $('lista').innerHTML = ''; $('busca').focus();
 }
+
+/* ---------- locação (inquilino) e vistoria de entrada ---------- */
+var locacao = null, entradaId = '';
+function carregarLocacoes(u) {
+  locacao = null; entradaId = '';
+  $('cardLoc').classList.remove('oculto');
+  $('locEscolhida').classList.add('oculto');
+  $('locLista').innerHTML = '';
+  $('locCarregando').textContent = 'Procurando as locações desta unidade…';
+  numerarPassos();
+  api('locacoes', { unidadeId: u.id }).then(function (lista) {
+    if (unidade !== u) return;   // trocou de unidade enquanto carregava
+    $('locCarregando').textContent = lista.length ? 'Toque na locação certa:' : 'Nenhuma pasta de locação encontrada nesta unidade.';
+    lista.forEach(function (l) {
+      var b = document.createElement('button');
+      var info = (l.atual ? 'atual' : (l.antigo ? 'antiga' : '')) +
+        (l.vistorias.length ? (l.atual || l.antigo ? ' · ' : '') + l.vistorias.length + ' vistoria(s)' : (l.atual || l.antigo ? ' · ' : '') + 'sem vistoria');
+      b.innerHTML = esc(l.nome) + '<br><small>' + esc(info) + '</small>';
+      b.onclick = function () { escolherLocacao(l); };
+      $('locLista').appendChild(b);
+    });
+    var s = document.createElement('button');
+    s.innerHTML = 'Sem inquilino / não sei<br><small>registra sem comparar com vistoria</small>';
+    s.onclick = function () { escolherLocacao({ id: '', nome: '', vistorias: [] }); };
+    $('locLista').appendChild(s);
+  }).catch(function (e) {
+    $('locCarregando').innerHTML = '<span class="erro">Não consegui ver as locações: ' + esc(e.message) + '</span>';
+    escolherLocacao({ id: '', nome: '', vistorias: [] });
+  });
+}
+function escolherLocacao(l) {
+  locacao = l;
+  $('locLista').innerHTML = ''; $('locCarregando').textContent = '';
+  $('locEscolhida').classList.remove('oculto');
+  $('locNome').textContent = l.nome || 'Sem inquilino';
+  var box = $('entradaBox');
+  if (!l.vistorias.length) {
+    entradaId = '';
+    box.textContent = l.nome ? 'Nenhuma vistoria encontrada nesta locação: o envio não terá comparativo.' : '';
+    return;
+  }
+  box.innerHTML = 'Vistoria de entrada para o comparativo:';
+  var sel = document.createElement('select');
+  l.vistorias.forEach(function (v) {
+    var o = document.createElement('option');
+    o.value = v.id; o.textContent = v.nome.replace(/\.pdf$/i, '') + ' (' + v.data + ')';
+    sel.appendChild(o);
+  });
+  var n = document.createElement('option'); n.value = ''; n.textContent = 'Não comparar';
+  sel.appendChild(n);
+  var abrir = document.createElement('a'); abrir.target = '_blank'; abrir.textContent = '📄 Abrir a vistoria';
+  function mudou() {
+    entradaId = sel.value;
+    abrir.style.display = entradaId ? '' : 'none';
+    abrir.href = 'https://drive.google.com/file/d/' + entradaId + '/view';
+  }
+  sel.onchange = mudou;
+  box.appendChild(sel);
+  var d = document.createElement('div'); d.style.marginTop = '6px'; d.appendChild(abrir); box.appendChild(d);
+  mudou();
+}
+function trocarLocacao() { if (unidade) carregarLocacoes(unidade); }
 
 /* ---------- responsável (quem fez) ---------- */
 var EXTRA = '__extra';
@@ -313,6 +377,11 @@ function enviar() {
   if (enviando) return;
   if (gravando) { $('aviso').textContent = 'Pare a gravação do áudio antes de enviar.'; return; }
   if (!unidade) { $('aviso').textContent = 'Escolha a unidade (passo 1).'; window.scrollTo(0, 0); return; }
+  if (cfg.locacoes && unidade.id !== 'outra' && !locacao) {
+    $('aviso').textContent = 'Escolha a locação (inquilino) (passo 2).';
+    $('cardLoc').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
   var dataVisita = '';
   if (cfg.pedirData) {
     dataVisita = $('dataVisita').value;
@@ -360,7 +429,8 @@ function enviar() {
   window.scrollTo(0, 0);
   var total = fila.length, feitos = 0, erros = [], reg;
 
-  api('iniciar', { unidadeId: unidade.id, unidadeTexto: unidade.id === 'outra' ? unidade.nome : '', tipo: tipo, observacao: obs, responsavel: responsavel, dataVisita: dataVisita }).then(function (r) {
+  api('iniciar', { unidadeId: unidade.id, unidadeTexto: unidade.id === 'outra' ? unidade.nome : '', tipo: tipo, observacao: obs, responsavel: responsavel, dataVisita: dataVisita,
+    locacao: locacao ? locacao.nome : '', entradaId: entradaId }).then(function (r) {
     reg = r;
     $('envioTexto').textContent = 'Enviando para ' + nomeCurto(r.unidade) + '. Não feche o app.';
     var fila2 = fila.slice();
@@ -398,6 +468,20 @@ function enviar() {
         (responsavel ? '<br>' + esc(txt('feitaPor', 'Feita por')) + ': <b>' + esc(responsavel) + '</b>' : '') +
         '<br>' + total + ' arquivo(s) enviados' +
         (ocorrencias.length ? '<br>' + ocorrencias.length + (cfg.pastaOcorr ? ' manutenção(ões)' : ' ocorrência(s)') + ' registrada(s).' : '.');
+    }
+    // comparativo com a vistoria de entrada (pré-vistoria e vistoria final)
+    if (entradaId && (cfg.compararTipos || []).indexOf(reg.tipo) >= 0) {
+      var fc = $('fimComparativo');
+      fc.classList.remove('oculto');
+      fc.innerHTML = '⏳ Gerando o <b>comparativo</b> com a vistoria de entrada… leva de 1 a 4 minutos. ' +
+        'Pode esperar aqui ou fechar o app: ele fica salvo na pasta da visita e na planilha.';
+      api('comparar', { pastaId: reg.pastaId }).then(function (c) {
+        fc.innerHTML = c.feito
+          ? '✅ Comparativo pronto (' + c.fotos + ' fotos analisadas): <a target="_blank" href="' + esc(c.link) + '">abrir o PDF</a>'
+          : '⚠️ O comparativo não foi feito: ' + esc(c.motivo || '');
+      }).catch(function (e) {
+        fc.innerHTML = '⚠️ Não consegui acompanhar o comparativo (' + esc(e.message) + '). Ele pode aparecer na pasta da visita em alguns minutos.';
+      });
     }
   }).catch(function (e) {
     enviando = false;
