@@ -7,20 +7,20 @@
     "id":  "./faxinas.html",
     "display":  "standalone",
     "orientation":  "portrait",
-    "background_color":  "#f4f6f9",
-    "theme_color":  "#0b8a7a",
+    "background_color":  "#ffffff",
+    "theme_color":  "#E8584A",
     "icons":  [
                   {
                       "purpose":  "any maskable",
                       "type":  "image/png",
                       "sizes":  "192x192",
-                      "src":  "icone-faxinas-192.png"
+                      "src":  "icone-briefstay-192.png"
                   },
                   {
                       "purpose":  "any maskable",
                       "type":  "image/png",
                       "sizes":  "512x512",
-                      "src":  "icone-faxinas-512.png"
+                      "src":  "icone-briefstay-512.png"
                   }
               ]
 }
