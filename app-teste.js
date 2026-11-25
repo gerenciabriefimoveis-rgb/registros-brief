@@ -70,6 +70,8 @@ function aplicarConfig(c) {
   if (c.responsaveis && c.responsaveis.length) montarResponsaveis(c.responsaveis);
   if (c.ocorrencias && c.ocorrencias.length) {
     $('cardOcorr').classList.remove('oculto');
+    // vistorias: primeiro as fotos e o áudio da visita, depois cada manutenção separada
+    if (c.pastaOcorr) $('telaForm').insertBefore($('cardOcorr'), $('obs').closest('.card'));
     c.ocorrencias.forEach(function (t) {
       var b = document.createElement('button');
       b.innerHTML = (ICONES[t] || '⚠️') + ' ' + esc(tx.botaoOcorr || t);
