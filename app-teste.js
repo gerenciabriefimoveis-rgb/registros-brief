@@ -58,6 +58,7 @@ function aplicarConfig(c) {
     b.onclick = function () { $('tipoTexto').value = t; marcarAtalho(); $('aviso').textContent = ''; };
     $('tipos').appendChild(b);
   });
+  if (c.responsaveis && c.responsaveis.length) montarResponsaveis(c.responsaveis);
   if (c.ocorrencias && c.ocorrencias.length) {
     $('cardOcorr').classList.remove('oculto');
     c.ocorrencias.forEach(function (t) {
@@ -111,6 +112,43 @@ function trocarUnidade() {
   $('unidadeBox').classList.add('oculto');
   $('buscaBox').classList.remove('oculto');
   $('busca').value = ''; $('lista').innerHTML = ''; $('busca').focus();
+}
+
+/* ---------- responsável (quem fez) ---------- */
+var EXTRA = '__extra';
+function montarResponsaveis(lista) {
+  var sel = $('resp');
+  sel.innerHTML = '<option value="">Escolha seu nome…</option>';
+  lista.forEach(function (r) {
+    var o = document.createElement('option');
+    o.value = r.nome;
+    o.textContent = r.apelido + ' (' + r.nome + ')';
+    sel.appendChild(o);
+  });
+  var x = document.createElement('option');
+  x.value = EXTRA; x.textContent = 'Extra (outra pessoa)';
+  sel.appendChild(x);
+  // lembra a última escolha deste celular (aparece preenchida; dá para trocar)
+  var salvo = localStorage.getItem('resp_' + MODO) || '';
+  if (salvo.indexOf('extra:') === 0) { sel.value = EXTRA; $('respExtra').value = salvo.slice(6); }
+  else if (lista.some(function (r) { return r.nome === salvo; })) sel.value = salvo;
+  sel.addEventListener('change', respMudou);
+  $('respExtra').addEventListener('input', respMudou);
+  respMudou();
+  $('cardResp').classList.remove('oculto');
+}
+function respMudou() {
+  var extra = $('resp').value === EXTRA;
+  $('respExtra').classList.toggle('oculto', !extra);
+  if (extra && document.activeElement === $('resp')) $('respExtra').focus();
+  var v = responsavelAtual();
+  if (v) localStorage.setItem('resp_' + MODO, extra ? 'extra:' + v : v);
+  $('aviso').textContent = '';
+}
+function responsavelAtual() {
+  var v = $('resp').value;
+  if (v === EXTRA) return $('respExtra').value.trim();
+  return v;
 }
 
 /* ---------- tipo ---------- */
@@ -236,6 +274,15 @@ function enviar() {
   if (enviando) return;
   if (gravando) { $('aviso').textContent = 'Pare a gravação do áudio antes de enviar.'; return; }
   if (!unidade) { $('aviso').textContent = 'Escolha a unidade (passo 1).'; window.scrollTo(0, 0); return; }
+  var responsavel = '';
+  if (cfg.responsaveis && cfg.responsaveis.length) {
+    responsavel = responsavelAtual();
+    if (!responsavel) {
+      $('aviso').textContent = $('resp').value === EXTRA ? 'Digite o seu nome (quem fez a faxina).' : 'Escolha quem fez a faxina (passo 2).';
+      $('cardResp').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+  }
   tipo = $('tipoTexto').value.trim();
   if (!tipo) { $('aviso').textContent = cfg.textoLivre ? 'Escreva o que é (passo 2).' : 'Escolha o tipo de faxina (passo 2).'; return; }
   for (var i = 0; i < ocorrencias.length; i++) {
@@ -269,7 +316,7 @@ function enviar() {
   window.scrollTo(0, 0);
   var total = fila.length, feitos = 0, erros = [], reg;
 
-  api('iniciar', { unidadeId: unidade.id, tipo: tipo, observacao: obs }).then(function (r) {
+  api('iniciar', { unidadeId: unidade.id, tipo: tipo, observacao: obs, responsavel: responsavel }).then(function (r) {
     reg = r;
     $('envioTexto').textContent = 'Enviando para ' + nomeCurto(r.unidade) + '. Não feche o app.';
     var fila2 = fila.slice();
@@ -289,7 +336,7 @@ function enviar() {
     return Promise.all(total ? [proximo(), proximo()] : []);
   }).then(function () {
     // REGISTROS conta só o material da faxina; cada ocorrência tem a própria contagem
-    return api('finalizar', { pastaId: reg.pastaId, unidade: reg.unidade, predio: reg.predio || '', tipo: reg.tipo,
+    return api('finalizar', { pastaId: reg.pastaId, unidade: reg.unidade, predio: reg.predio || '', tipo: reg.tipo, responsavel: responsavel,
       fotos: qtd(arquivos, 'foto'), videos: qtd(arquivos, 'video'), audios: qtd(arquivos, 'audio'),
       erros: erros.length, observacao: obs, ocorrencias: resumo });
   }).then(function () {
@@ -302,7 +349,8 @@ function enviar() {
       $('fimTexto').innerHTML = 'Salvo em <b>' + esc(nome) + '</b>, mas ' + erros.length + ' arquivo(s) não foram: ' + esc(erros.join(', ')) + '. Mande esses de novo num novo registro.';
     } else {
       $('fimTitulo').textContent = '✅ Tudo salvo!';
-      $('fimTexto').innerHTML = '<b>' + esc(nome) + '</b> – ' + esc(reg.tipo) + '<br>' + total + ' arquivo(s) enviados' +
+      $('fimTexto').innerHTML = '<b>' + esc(nome) + '</b> – ' + esc(reg.tipo) + (responsavel ? '<br>Feita por: <b>' + esc(responsavel) + '</b>' : '') +
+        '<br>' + total + ' arquivo(s) enviados' +
         (ocorrencias.length ? '<br>' + ocorrencias.length + ' ocorrência(s) registrada(s).' : '.');
     }
   }).catch(function (e) {
