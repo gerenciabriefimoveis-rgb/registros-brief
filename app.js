@@ -58,12 +58,23 @@ function aplicarConfig(c) {
     b.onclick = function () { $('tipoTexto').value = t; marcarAtalho(); $('aviso').textContent = ''; };
     $('tipos').appendChild(b);
   });
+  var tx = c.textos || {};
+  if (tx.resp && $('tResp')) $('tResp').textContent = tx.resp;
+  if (tx.ocorr && $('tOcorr')) $('tOcorr').textContent = tx.ocorr;
+  if (c.pedirData && $('cardData')) {
+    var hoje = new Date();
+    $('dataVisita').value = hoje.getFullYear() + '-' + ('0' + (hoje.getMonth() + 1)).slice(-2) + '-' + ('0' + hoje.getDate()).slice(-2);
+    $('dataVisita').max = $('dataVisita').value;
+    $('cardData').classList.remove('oculto');
+  }
   if (c.responsaveis && c.responsaveis.length) montarResponsaveis(c.responsaveis);
   if (c.ocorrencias && c.ocorrencias.length) {
     $('cardOcorr').classList.remove('oculto');
+    // vistorias: primeiro as fotos e o áudio da visita, depois cada manutenção separada
+    if (c.pastaOcorr) $('telaForm').insertBefore($('cardOcorr'), $('obs').closest('.card'));
     c.ocorrencias.forEach(function (t) {
       var b = document.createElement('button');
-      b.innerHTML = (ICONES[t] || '⚠️') + ' ' + esc(t);
+      b.innerHTML = (ICONES[t] || '⚠️') + ' ' + esc(tx.botaoOcorr || t);
       b.onclick = function () { novaOcorrencia(t); };
       $('botoesOcorr').appendChild(b);
     });
@@ -127,13 +138,77 @@ function escolherUnidade(u) {
   $('buscaBox').classList.add('oculto');
   $('unidadeBox').classList.remove('oculto');
   $('aviso').textContent = '';
+  if (cfg.locacoes && u.id !== 'outra') carregarLocacoes(u);
 }
 function trocarUnidade() {
-  unidade = null;
+  unidade = null; locacao = null; entradaId = '';
+  if ($('cardLoc')) { $('cardLoc').classList.add('oculto'); numerarPassos(); }
   $('unidadeBox').classList.add('oculto');
   $('buscaBox').classList.remove('oculto');
   $('busca').value = ''; $('lista').innerHTML = ''; $('busca').focus();
 }
+
+/* ---------- locação (inquilino) e vistoria de entrada ---------- */
+var locacao = null, entradaId = '';
+function carregarLocacoes(u) {
+  locacao = null; entradaId = '';
+  $('cardLoc').classList.remove('oculto');
+  $('locEscolhida').classList.add('oculto');
+  $('locLista').innerHTML = '';
+  $('locCarregando').textContent = 'Procurando as locações desta unidade…';
+  numerarPassos();
+  api('locacoes', { unidadeId: u.id }).then(function (lista) {
+    if (unidade !== u) return;   // trocou de unidade enquanto carregava
+    $('locCarregando').textContent = lista.length ? 'Toque na locação certa:' : 'Nenhuma pasta de locação encontrada nesta unidade.';
+    lista.forEach(function (l) {
+      var b = document.createElement('button');
+      var info = (l.atual ? 'atual' : (l.antigo ? 'antiga' : '')) +
+        (l.vistorias.length ? (l.atual || l.antigo ? ' · ' : '') + l.vistorias.length + ' vistoria(s)' : (l.atual || l.antigo ? ' · ' : '') + 'sem vistoria');
+      b.innerHTML = esc(l.nome) + '<br><small>' + esc(info) + '</small>';
+      b.onclick = function () { escolherLocacao(l); };
+      $('locLista').appendChild(b);
+    });
+    var s = document.createElement('button');
+    s.innerHTML = 'Sem inquilino / não sei<br><small>registra sem comparar com vistoria</small>';
+    s.onclick = function () { escolherLocacao({ id: '', nome: '', vistorias: [] }); };
+    $('locLista').appendChild(s);
+  }).catch(function (e) {
+    $('locCarregando').innerHTML = '<span class="erro">Não consegui ver as locações: ' + esc(e.message) + '</span>';
+    escolherLocacao({ id: '', nome: '', vistorias: [] });
+  });
+}
+function escolherLocacao(l) {
+  locacao = l;
+  $('locLista').innerHTML = ''; $('locCarregando').textContent = '';
+  $('locEscolhida').classList.remove('oculto');
+  $('locNome').textContent = l.nome || 'Sem inquilino';
+  var box = $('entradaBox');
+  if (!l.vistorias.length) {
+    entradaId = '';
+    box.textContent = l.nome ? 'Nenhuma vistoria encontrada nesta locação: o envio não terá comparativo.' : '';
+    return;
+  }
+  box.innerHTML = 'Vistoria de entrada para o comparativo:';
+  var sel = document.createElement('select');
+  l.vistorias.forEach(function (v) {
+    var o = document.createElement('option');
+    o.value = v.id; o.textContent = v.nome.replace(/\.pdf$/i, '') + ' (' + v.data + ')';
+    sel.appendChild(o);
+  });
+  var n = document.createElement('option'); n.value = ''; n.textContent = 'Não comparar';
+  sel.appendChild(n);
+  var abrir = document.createElement('a'); abrir.target = '_blank'; abrir.textContent = '📄 Abrir a vistoria';
+  function mudou() {
+    entradaId = sel.value;
+    abrir.style.display = entradaId ? '' : 'none';
+    abrir.href = 'https://drive.google.com/file/d/' + entradaId + '/view';
+  }
+  sel.onchange = mudou;
+  box.appendChild(sel);
+  var d = document.createElement('div'); d.style.marginTop = '6px'; d.appendChild(abrir); box.appendChild(d);
+  mudou();
+}
+function trocarLocacao() { if (unidade) carregarLocacoes(unidade); }
 
 /* ---------- responsável (quem fez) ---------- */
 var EXTRA = '__extra';
@@ -143,7 +218,7 @@ function montarResponsaveis(lista) {
   lista.forEach(function (r) {
     var o = document.createElement('option');
     o.value = r.nome;
-    o.textContent = r.apelido + ' (' + r.nome + ')';
+    o.textContent = r.apelido === r.nome ? r.nome : r.apelido + ' (' + r.nome + ')';
     sel.appendChild(o);
   });
   var x = document.createElement('option');
@@ -153,6 +228,7 @@ function montarResponsaveis(lista) {
   var salvo = localStorage.getItem('resp_' + MODO) || '';
   if (salvo.indexOf('extra:') === 0) { sel.value = EXTRA; $('respExtra').value = salvo.slice(6); }
   else if (lista.some(function (r) { return r.nome === salvo; })) sel.value = salvo;
+  else if (lista.length === 1) sel.value = lista[0].nome;   // só uma pessoa (ex.: Shirley): já vem escolhida
   sel.addEventListener('change', respMudou);
   $('respExtra').addEventListener('input', respMudou);
   respMudou();
@@ -242,26 +318,29 @@ function gravarAudio(botao, destino, listaEl, rotulo) {
 function alternarGravacao() { gravarAudio($('btnGravar'), arquivos, $('audios'), 'Áudio'); }
 
 /* ---------- ocorrências ---------- */
+function txt(k, padrao) { return (cfg.textos && cfg.textos[k]) || padrao; }
 function novaOcorrencia(t) {
   contOcorr++;
   var o = { n: contOcorr, tipo: t, arquivos: [] };
   var el = document.createElement('div');
   el.className = 'ocorrencia';
+  var titulo = cfg.pastaOcorr ? txt('ocorrNome', t) + ' ' + (ocorrencias.length + 1) : t;
+  var prova = txt('ocorrProva', 'Mande uma foto ou um áudio como prova.');
   el.innerHTML =
-    '<div class="ocTopo"><b>' + (ICONES[t] || '⚠️') + ' ' + esc(t) + '</b>' +
+    '<div class="ocTopo"><b>' + (ICONES[t] || '⚠️') + ' ' + esc(titulo) + '</b>' +
     '<button class="link remover">Remover</button></div>' +
-    '<textarea placeholder="Explique o que encontrou (opcional)"></textarea>' +
+    '<textarea placeholder="' + esc(txt('ocorrPlaceholder', 'Explique o que encontrou (opcional)')) + '"></textarea>' +
     '<div class="ocBotoes">' +
     '<label class="peq">📷 Foto<input type="file" accept="image/*" capture="environment"></label>' +
     '<label class="peq">🖼️ Galeria<input type="file" accept="image/*,video/*" multiple></label>' +
     '<button class="peq vermelho">● Gravar áudio</button></div>' +
     '<div class="miniaturas"></div><div class="audios"></div>' +
-    '<div class="contagem">Mande uma foto ou um áudio como prova.</div>';
+    '<div class="contagem">' + esc(prova) + '</div>';
   o.el = el;
   var mini = el.querySelector('.miniaturas'), auds = el.querySelector('.audios'), cont = el.querySelector('.contagem');
   function atualizar() {
     var f = qtd(o.arquivos, 'foto') + qtd(o.arquivos, 'video'), a = qtd(o.arquivos, 'audio');
-    cont.textContent = (f || a) ? f + ' foto(s)/vídeo(s) e ' + a + ' áudio(s).' : 'Mande uma foto ou um áudio como prova.';
+    cont.textContent = (f || a) ? f + ' foto(s)/vídeo(s) e ' + a + ' áudio(s).' : prova;
     cont.classList.remove('erro');
   }
   [].forEach.call(el.querySelectorAll('input[type=file]'), function (inp) {
@@ -272,9 +351,12 @@ function novaOcorrencia(t) {
   new MutationObserver(atualizar).observe(auds, { childList: true });
   el.querySelector('.remover').onclick = function () {
     if (gravando && gravando.botao === bAudio) { alert('Pare a gravação antes de remover.'); return; }
-    if ((o.arquivos.length || el.querySelector('textarea').value.trim()) && !confirm('Remover esta ocorrência?')) return;
+    if ((o.arquivos.length || el.querySelector('textarea').value.trim()) && !confirm('Remover este item?')) return;
     ocorrencias = ocorrencias.filter(function (x) { return x !== o; });
     el.remove();
+    if (cfg.pastaOcorr) ocorrencias.forEach(function (x, i) {   // renumera "Manutenção 1, 2, 3..."
+      x.el.querySelector('.ocTopo b').textContent = (ICONES[x.tipo] || '⚠️') + ' ' + txt('ocorrNome', x.tipo) + ' ' + (i + 1);
+    });
   };
   ocorrencias.push(o);
   $('listaOcorr').appendChild(el);
@@ -295,24 +377,34 @@ function enviar() {
   if (enviando) return;
   if (gravando) { $('aviso').textContent = 'Pare a gravação do áudio antes de enviar.'; return; }
   if (!unidade) { $('aviso').textContent = 'Escolha a unidade (passo 1).'; window.scrollTo(0, 0); return; }
+  if (cfg.locacoes && unidade.id !== 'outra' && !locacao) {
+    $('aviso').textContent = 'Escolha a locação (inquilino) (passo 2).';
+    $('cardLoc').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  var dataVisita = '';
+  if (cfg.pedirData) {
+    dataVisita = $('dataVisita').value;
+    if (!dataVisita) { $('aviso').textContent = 'Escolha a data da visita.'; $('cardData').scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  }
   var responsavel = '';
   if (cfg.responsaveis && cfg.responsaveis.length) {
     responsavel = responsavelAtual();
     if (!responsavel) {
-      $('aviso').textContent = $('resp').value === EXTRA ? 'Digite o seu nome (quem fez a faxina).' : 'Escolha quem fez a faxina (passo 2).';
+      $('aviso').textContent = $('resp').value === EXTRA ? 'Digite o seu nome completo.' : txt('respAviso', 'Escolha quem fez a faxina (passo 2).');
       $('cardResp').scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
     }
   }
   tipo = $('tipoTexto').value.trim();
-  if (!tipo) { $('aviso').textContent = cfg.textoLivre ? 'Escreva o que é (passo 2).' : 'Escolha o tipo de faxina (passo 2).'; return; }
+  if (!tipo) { $('aviso').textContent = cfg.textoLivre ? 'Escreva o que é (passo 2).' : txt('tipoAviso', 'Escolha o tipo de faxina (passo 2).'); return; }
   for (var i = 0; i < ocorrencias.length; i++) {
     var o = ocorrencias[i];
     if (!o.arquivos.length) {
       var c = o.el.querySelector('.contagem');
       c.textContent = 'Falta a prova: mande uma foto ou um áudio.'; c.classList.add('erro');
       o.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      $('aviso').textContent = 'Uma ocorrência está sem foto ou áudio.';
+      $('aviso').textContent = (cfg.pastaOcorr ? 'Uma manutenção' : 'Uma ocorrência') + ' está sem foto ou áudio.';
       return;
     }
   }
@@ -324,7 +416,7 @@ function enviar() {
   arquivos.forEach(function (a, i) { fila.push({ a: a, sub: '', nome: ('00' + (i + 1)).slice(-3) + '_' + a.nome }); });
   var resumo = [];
   ocorrencias.forEach(function (o, idx) {
-    var sub = 'OCORRENCIA ' + (idx + 1) + ' - ' + o.tipo;
+    var sub = cfg.pastaOcorr ? cfg.pastaOcorr + ' ' + (idx + 1) : 'OCORRENCIA ' + (idx + 1) + ' - ' + o.tipo;
     var texto = o.el.querySelector('textarea').value.trim();
     o.arquivos.forEach(function (a, i) { fila.push({ a: a, sub: sub, nome: ('00' + (i + 1)).slice(-3) + '_' + a.nome }); });
     if (texto) fila.push({ a: { file: new Blob([texto], { type: 'text/plain' }), mime: 'text/plain', kind: 'texto' }, sub: sub, nome: 'EXPLICACAO.txt' });
@@ -337,7 +429,8 @@ function enviar() {
   window.scrollTo(0, 0);
   var total = fila.length, feitos = 0, erros = [], reg;
 
-  api('iniciar', { unidadeId: unidade.id, unidadeTexto: unidade.id === 'outra' ? unidade.nome : '', tipo: tipo, observacao: obs, responsavel: responsavel }).then(function (r) {
+  api('iniciar', { unidadeId: unidade.id, unidadeTexto: unidade.id === 'outra' ? unidade.nome : '', tipo: tipo, observacao: obs, responsavel: responsavel, dataVisita: dataVisita,
+    locacao: locacao ? locacao.nome : '', entradaId: entradaId }).then(function (r) {
     reg = r;
     $('envioTexto').textContent = 'Enviando para ' + nomeCurto(r.unidade) + '. Não feche o app.';
     var fila2 = fila.slice();
@@ -357,7 +450,7 @@ function enviar() {
     return Promise.all(total ? [proximo(), proximo()] : []);
   }).then(function () {
     // REGISTROS conta só o material da faxina; cada ocorrência tem a própria contagem
-    return api('finalizar', { pastaId: reg.pastaId, unidade: reg.unidade, predio: reg.predio || '', tipo: reg.tipo, responsavel: responsavel,
+    return api('finalizar', { pastaId: reg.pastaId, unidade: reg.unidade, predio: reg.predio || '', tipo: reg.tipo, responsavel: responsavel, dataVisita: dataVisita,
       fotos: qtd(arquivos, 'foto'), videos: qtd(arquivos, 'video'), audios: qtd(arquivos, 'audio'),
       erros: erros.length, observacao: obs, ocorrencias: resumo });
   }).then(function () {
@@ -370,9 +463,26 @@ function enviar() {
       $('fimTexto').innerHTML = 'Salvo em <b>' + esc(nome) + '</b>, mas ' + erros.length + ' arquivo(s) não foram: ' + esc(erros.join(', ')) + '. Mande esses de novo num novo registro.';
     } else {
       $('fimTitulo').textContent = '✅ Tudo salvo!';
-      $('fimTexto').innerHTML = '<b>' + esc(nome) + '</b> – ' + esc(reg.tipo) + (responsavel ? '<br>Feita por: <b>' + esc(responsavel) + '</b>' : '') +
+      $('fimTexto').innerHTML = '<b>' + esc(nome) + '</b> – ' + esc(reg.tipo) +
+        (dataVisita ? '<br>Data da visita: <b>' + dataVisita.split('-').reverse().join('/') + '</b>' : '') +
+        (responsavel ? '<br>' + esc(txt('feitaPor', 'Feita por')) + ': <b>' + esc(responsavel) + '</b>' : '') +
         '<br>' + total + ' arquivo(s) enviados' +
-        (ocorrencias.length ? '<br>' + ocorrencias.length + ' ocorrência(s) registrada(s).' : '.');
+        (ocorrencias.length ? '<br>' + ocorrencias.length + (cfg.pastaOcorr ? ' manutenção(ões)' : ' ocorrência(s)') + ' registrada(s).' : '.');
+    }
+    // comparativo com a vistoria de entrada (pré-vistoria e vistoria final)
+    if (entradaId && (cfg.compararTipos || []).indexOf(reg.tipo) >= 0) {
+      var fc = $('fimComparativo');
+      fc.classList.remove('oculto');
+      fc.innerHTML = '⏳ Gerando o <b>comparativo</b> com a vistoria de entrada… leva de 1 a 4 minutos. ' +
+        'Pode esperar aqui ou fechar o app: ele fica salvo na pasta da visita e na planilha.';
+      api('comparar', { pastaId: reg.pastaId }).then(function (c) {
+        fc.innerHTML = c.feito
+          ? '✅ Comparativo pronto (' + c.fotos + ' fotos analisadas): <a target="_blank" href="' + esc(c.link) + '">abrir o PDF</a>' +
+            '<br>Comparado com: <a target="_blank" href="' + esc(c.laudoLink) + '">' + esc(c.laudo) + '</a>'
+          : '⚠️ O comparativo não foi feito: ' + esc(c.motivo || '');
+      }).catch(function (e) {
+        fc.innerHTML = '⚠️ Não consegui acompanhar o comparativo (' + esc(e.message) + '). Ele pode aparecer na pasta da visita em alguns minutos.';
+      });
     }
   }).catch(function (e) {
     enviando = false;

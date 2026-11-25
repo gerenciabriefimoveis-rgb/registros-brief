@@ -18,8 +18,11 @@
   .passo { font-size:14px; color:var(--cinza); text-transform:uppercase; letter-spacing:.04em; margin-bottom:8px; }
   select { width:100%; font-size:19px; padding:14px; border:2px solid #dadce0; border-radius:10px; background:#fff; font-family:inherit; color:#202124; }
   #respExtra, #outraTexto { margin-top:8px; }
+  #entradaBox select { margin-top:6px; font-size:16px; padding:10px; }
+  #entradaBox a, #fimComparativo a { color:var(--azul); font-weight:600; }
+  #fimComparativo { margin-top:14px; padding:10px; border-radius:10px; background:#f1f3f4; font-size:16px; }
   .lista button.outra { border:2px dashed #9aa0a6; color:var(--azul); font-weight:600; }
-  input[type=search], textarea { width:100%; font-size:20px; padding:14px; border:2px solid #dadce0; border-radius:10px; font-family:inherit; }
+  input[type=search], input[type=date], textarea { width:100%; font-size:20px; padding:14px; border:2px solid #dadce0; border-radius:10px; font-family:inherit; }
   textarea { font-size:18px; min-height:90px; }
   .lista button { display:block; width:100%; text-align:left; font-size:18px; padding:14px; margin-top:8px; border:1px solid #dadce0; background:#fff; border-radius:10px; color:#202124; }
   .lista small, .grupo { color:var(--cinza); font-size:15px; }
@@ -92,8 +95,24 @@
       </div>
     </div>
 
+    <div class="card oculto" id="cardLoc">
+      <div class="passo"><span class="num">2.</span> De qual locação (inquilino)?</div>
+      <div class="contagem" id="locCarregando"></div>
+      <div class="lista" id="locLista"></div>
+      <div id="locEscolhida" class="oculto">
+        <div class="escolhida" id="locNome"></div>
+        <button class="link" onclick="trocarLocacao()">Trocar locação</button>
+        <div id="entradaBox" class="contagem"></div>
+      </div>
+    </div>
+
+    <div class="card oculto" id="cardData">
+      <div class="passo"><span class="num">2.</span> Data da visita</div>
+      <input type="date" id="dataVisita">
+    </div>
+
     <div class="card oculto" id="cardResp">
-      <div class="passo"><span class="num">2.</span> Quem fez a faxina?</div>
+      <div class="passo"><span class="num">2.</span> <span id="tResp">Quem fez a faxina?</span></div>
       <select id="resp"></select>
       <input type="search" id="respExtra" class="oculto" placeholder="Digite seu nome completo" autocomplete="off" maxlength="60">
     </div>
@@ -106,7 +125,7 @@
     </div>
 
     <div class="card oculto" id="cardOcorr">
-      <div class="passo"><span class="num">3.</span> Encontrou alguma coisa? (se não, pule)</div>
+      <div class="passo"><span class="num">3.</span> <span id="tOcorr">Encontrou alguma coisa? (se não, pule)</span></div>
       <div class="botoesOcorr" id="botoesOcorr"></div>
       <div id="listaOcorr"></div>
     </div>
@@ -147,6 +166,7 @@
   <div id="telaFim" class="card oculto">
     <div class="ok" id="fimTitulo"></div>
     <div id="fimTexto" style="margin-top:10px"></div>
+    <div id="fimComparativo" class="oculto"></div>
     <button class="grande" onclick="location.reload()">Novo registro</button>
   </div>
 </main>

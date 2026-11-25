@@ -477,7 +477,8 @@ function enviar() {
         'Pode esperar aqui ou fechar o app: ele fica salvo na pasta da visita e na planilha.';
       api('comparar', { pastaId: reg.pastaId }).then(function (c) {
         fc.innerHTML = c.feito
-          ? '✅ Comparativo pronto (' + c.fotos + ' fotos analisadas): <a target="_blank" href="' + esc(c.link) + '">abrir o PDF</a>'
+          ? '✅ Comparativo pronto (' + c.fotos + ' fotos analisadas): <a target="_blank" href="' + esc(c.link) + '">abrir o PDF</a>' +
+            '<br>Comparado com: <a target="_blank" href="' + esc(c.laudoLink) + '">' + esc(c.laudo) + '</a>'
           : '⚠️ O comparativo não foi feito: ' + esc(c.motivo || '');
       }).catch(function (e) {
         fc.innerHTML = '⚠️ Não consegui acompanhar o comparativo (' + esc(e.message) + '). Ele pode aparecer na pasta da visita em alguns minutos.';
