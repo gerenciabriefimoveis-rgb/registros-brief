@@ -3,7 +3,7 @@
     "short_name":  "Vistorias",
     "lang":  "pt-BR",
     "start_url":  "./vistorias.html",
-    "scope":  "./",
+    "scope":  "./vistorias",
     "id":  "./vistorias.html",
     "display":  "standalone",
     "orientation":  "portrait",
