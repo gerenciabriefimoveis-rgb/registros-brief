@@ -2,6 +2,7 @@
 var API = 'https://script.google.com/macros/s/AKfycbzmbxKJGmrzqZu8OMIzFDDb1Yq2YqGWA976rAplp2RgNcxitgwDFen1MqPZx_lhHcf4/exec';
 var MODO = document.body.getAttribute('data-modo');
 var LIMITE_MB = 35;
+var ICONES = { 'Precisa de manutenção': '🔧', 'Encontrei um objeto': '🔎', 'Falta item': '📦' };
 
 var CHAVE = (function () {
   var m = location.hash.match(/k=([a-z0-9]+)/i);
@@ -12,12 +13,16 @@ var CHAVE = (function () {
   return localStorage.getItem('chave_' + MODO) || '';
 })();
 
-var unidades = [], unidade = null, tipo = '', arquivos = [];
-var gravador = null, pedacos = [], inicioGrav = 0, timerGrav = null, enviando = false;
+var cfg = { textoLivre: true, atalhos: [], ocorrencias: [] };
+var unidades = [], unidade = null, tipo = '';
+var arquivos = [];      // fotos/vídeos/áudios gerais: {file, nome, mime, kind}
+var ocorrencias = [];   // {n, tipo, el, arquivos: [...]}
+var gravando = null, enviando = false, contOcorr = 0;
 
 function $(id) { return document.getElementById(id); }
 function semAcento(s) { return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase(); }
 function nomeCurto(n) { return n.replace(/^UNIDADE\s+/i, ''); }
+function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 
 function api(acao, dados) {
   var corpo = Object.assign({ acao: acao, modo: MODO, chave: CHAVE }, dados || {});
@@ -30,14 +35,48 @@ function api(acao, dados) {
 if (!CHAVE) {
   $('telaForm').innerHTML = '<div class="card erro">Este aparelho ainda não foi liberado. Abra o app pelo link que a Brief mandou.</div>';
 } else {
-  api('config').then(function (c) { montarAtalhos(c.atalhos); }).catch(mostrarErroInicio);
+  api('config').then(aplicarConfig).catch(mostrarErroInicio);
   api('unidades').then(function (l) {
     unidades = l;
     $('carregando').textContent = l.length + ' unidades. Digite para buscar.';
   }).catch(mostrarErroInicio);
 }
 function mostrarErroInicio(e) {
-  $('carregando').innerHTML = '<span class="erro">Não consegui carregar: ' + e.message + ' Verifique a internet e abra de novo.</span>';
+  $('carregando').innerHTML = '<span class="erro">Não consegui carregar: ' + esc(e.message) + ' Verifique a internet e abra de novo.</span>';
+}
+function aplicarConfig(c) {
+  cfg = c;
+  if (c.textoLivre !== false) cfg.textoLivre = true;
+  if (c.textoLivre === false) {
+    $('tipoTexto').classList.add('oculto');
+    $('tipoDica').classList.add('oculto');
+    $('tipos').classList.add('dois');
+  }
+  c.atalhos.forEach(function (t) {
+    var b = document.createElement('button');
+    b.textContent = t;
+    b.onclick = function () { $('tipoTexto').value = t; marcarAtalho(); $('aviso').textContent = ''; };
+    $('tipos').appendChild(b);
+  });
+  if (c.ocorrencias && c.ocorrencias.length) {
+    $('cardOcorr').classList.remove('oculto');
+    c.ocorrencias.forEach(function (t) {
+      var b = document.createElement('button');
+      b.innerHTML = (ICONES[t] || '⚠️') + ' ' + esc(t);
+      b.onclick = function () { novaOcorrencia(t); };
+      $('botoesOcorr').appendChild(b);
+    });
+  }
+  numerarPassos();
+}
+function numerarPassos() {
+  var n = 0;
+  [].forEach.call(document.querySelectorAll('#telaForm .card'), function (card) {
+    var p = card.querySelector('.passo');
+    if (!p || card.classList.contains('oculto')) return;
+    n++;
+    p.querySelector('.num').textContent = n + '.';
+  });
 }
 
 /* ---------- unidade ---------- */
@@ -54,7 +93,7 @@ $('busca').addEventListener('input', function () {
   if (!achou.length) { box.innerHTML = '<div class="contagem">Nada encontrado.</div>'; return; }
   achou.forEach(function (u) {
     var b = document.createElement('button');
-    b.innerHTML = nomeCurto(u.nome) + (u.grupo ? '<br><small>' + u.grupo + '</small>' : '');
+    b.innerHTML = esc(nomeCurto(u.nome)) + (u.grupo ? '<br><small>' + esc(u.grupo) + '</small>' : '');
     b.onclick = function () { escolherUnidade(u); };
     box.appendChild(b);
   });
@@ -74,76 +113,113 @@ function trocarUnidade() {
   $('busca').value = ''; $('lista').innerHTML = ''; $('busca').focus();
 }
 
-/* ---------- o que é ---------- */
-function montarAtalhos(lista) {
-  lista.forEach(function (t) {
-    var b = document.createElement('button');
-    b.textContent = t;
-    b.onclick = function () { $('tipoTexto').value = t; marcarAtalho(); $('aviso').textContent = ''; };
-    $('tipos').appendChild(b);
-  });
-}
+/* ---------- tipo ---------- */
 function marcarAtalho() {
   var v = $('tipoTexto').value.trim();
   [].forEach.call($('tipos').children, function (x) { x.classList.toggle('sel', x.textContent === v); });
 }
 $('tipoTexto').addEventListener('input', function () { marcarAtalho(); $('aviso').textContent = ''; });
 
-/* ---------- fotos ---------- */
-function adicionarArquivos(lista) {
+/* ---------- arquivos (geral e ocorrências) ---------- */
+function lerArquivos(lista, destino, miniaturas, aoMudar) {
   [].forEach.call(lista, function (f) {
     var ehVideo = /^video\//.test(f.type);
     if (f.size > LIMITE_MB * 1048576) {
       alert('"' + f.name + '" é grande demais (' + Math.round(f.size / 1048576) + ' MB). Vídeos precisam ser curtos (até ' + LIMITE_MB + ' MB).');
       return;
     }
-    arquivos.push({ file: f, nome: f.name || ('foto_' + Date.now() + '.jpg'), mime: f.type, kind: ehVideo ? 'video' : 'foto' });
+    destino.push({ file: f, nome: f.name || ('foto_' + Date.now() + '.jpg'), mime: f.type, kind: ehVideo ? 'video' : 'foto' });
     var d = document.createElement('div');
     if (!ehVideo) d.style.backgroundImage = 'url(' + URL.createObjectURL(f) + ')';
-    else d.textContent = '🎬 vídeo';
-    $('miniaturas').appendChild(d);
+    else d.textContent = '🎬';
+    miniaturas.appendChild(d);
   });
-  contar();
+  aoMudar();
 }
-function qtd(k) { return arquivos.filter(function (a) { return a.kind === k; }).length; }
-function contar() {
-  var f = qtd('foto'), v = qtd('video');
+function qtd(lista, k) { return lista.filter(function (a) { return a.kind === k; }).length; }
+function contarGeral() {
+  var f = qtd(arquivos, 'foto'), v = qtd(arquivos, 'video');
   $('contagemFotos').textContent = (f || v) ? f + ' foto(s)' + (v ? ' e ' + v + ' vídeo(s)' : '') + ' prontos para enviar.' : 'Nenhuma foto ainda.';
 }
-$('camera').addEventListener('change', function () { adicionarArquivos(this.files); this.value = ''; });
-$('galeria').addEventListener('change', function () { adicionarArquivos(this.files); this.value = ''; });
+$('camera').addEventListener('change', function () { lerArquivos(this.files, arquivos, $('miniaturas'), contarGeral); this.value = ''; });
+$('galeria').addEventListener('change', function () { lerArquivos(this.files, arquivos, $('miniaturas'), contarGeral); this.value = ''; });
 
-/* ---------- áudio ---------- */
-function alternarGravacao() {
-  if (gravador && gravador.state === 'recording') { gravador.stop(); return; }
-  if (!navigator.mediaDevices || !window.MediaRecorder) { alert('Este celular não permite gravar áudio aqui. Use a observação escrita.'); return; }
+/* ---------- áudio (um por vez) ---------- */
+function gravarAudio(botao, destino, listaEl, rotulo) {
+  if (gravando) {
+    if (gravando.botao === botao) { gravando.rec.stop(); }
+    else { alert('Pare a outra gravação antes.'); }
+    return;
+  }
+  if (!navigator.mediaDevices || !window.MediaRecorder) { alert('Este celular não permite gravar áudio aqui. Escreva a explicação.'); return; }
   navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
-    pedacos = [];
-    gravador = new MediaRecorder(stream);
-    gravador.ondataavailable = function (e) { if (e.data.size) pedacos.push(e.data); };
-    gravador.onstop = function () {
+    var pedacos = [], rec = new MediaRecorder(stream), inicio = Date.now(), textoOriginal = botao.textContent;
+    gravando = { botao: botao, rec: rec };
+    rec.ondataavailable = function (e) { if (e.data.size) pedacos.push(e.data); };
+    rec.onstop = function () {
       stream.getTracks().forEach(function (t) { t.stop(); });
-      clearInterval(timerGrav);
-      var mime = gravador.mimeType || 'audio/webm';
+      clearInterval(timer);
+      gravando = null;
+      var mime = rec.mimeType || 'audio/webm';
       var ext = mime.indexOf('mp4') >= 0 ? 'm4a' : (mime.indexOf('ogg') >= 0 ? 'ogg' : 'webm');
-      var n = qtd('audio') + 1;
-      arquivos.push({ file: new Blob(pedacos, { type: mime }), nome: 'audio_' + n + '.' + ext, mime: mime, kind: 'audio' });
-      var s = Math.round((Date.now() - inicioGrav) / 1000);
+      var n = qtd(destino, 'audio') + 1;
+      destino.push({ file: new Blob(pedacos, { type: mime }), nome: 'audio_' + n + '.' + ext, mime: mime, kind: 'audio' });
+      var s = Math.round((Date.now() - inicio) / 1000);
       var d = document.createElement('div');
-      d.textContent = '🎤 Áudio ' + n + ' (' + Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2) + ')';
-      $('audios').appendChild(d);
-      $('btnGravar').textContent = '● Gravar outro áudio';
-      $('btnGravar').className = 'grande vermelho';
+      d.textContent = '🎤 ' + rotulo + ' ' + n + ' (' + Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2) + ')';
+      listaEl.appendChild(d);
+      botao.textContent = textoOriginal.indexOf('outro') >= 0 ? textoOriginal : textoOriginal.replace('Gravar', 'Gravar outro');
+      botao.classList.remove('cinza');
     };
-    gravador.start(1000);
-    inicioGrav = Date.now();
-    $('btnGravar').className = 'grande cinza';
-    $('btnGravar').textContent = '■ Parar (0:00)';
-    timerGrav = setInterval(function () {
-      var s = Math.round((Date.now() - inicioGrav) / 1000);
-      $('btnGravar').textContent = '■ Parar (' + Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2) + ')';
+    rec.start(1000);
+    botao.classList.add('cinza');
+    botao.textContent = '■ Parar (0:00)';
+    var timer = setInterval(function () {
+      var s = Math.round((Date.now() - inicio) / 1000);
+      botao.textContent = '■ Parar (' + Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2) + ')';
     }, 500);
   }).catch(function () { alert('Não consegui usar o microfone. Permita o acesso ao microfone e tente de novo.'); });
+}
+function alternarGravacao() { gravarAudio($('btnGravar'), arquivos, $('audios'), 'Áudio'); }
+
+/* ---------- ocorrências ---------- */
+function novaOcorrencia(t) {
+  contOcorr++;
+  var o = { n: contOcorr, tipo: t, arquivos: [] };
+  var el = document.createElement('div');
+  el.className = 'ocorrencia';
+  el.innerHTML =
+    '<div class="ocTopo"><b>' + (ICONES[t] || '⚠️') + ' ' + esc(t) + '</b>' +
+    '<button class="link remover">Remover</button></div>' +
+    '<textarea placeholder="Explique o que encontrou (opcional)"></textarea>' +
+    '<div class="ocBotoes">' +
+    '<label class="peq">📷 Foto<input type="file" accept="image/*" capture="environment"></label>' +
+    '<label class="peq">🖼️ Galeria<input type="file" accept="image/*,video/*" multiple></label>' +
+    '<button class="peq vermelho">● Gravar áudio</button></div>' +
+    '<div class="miniaturas"></div><div class="audios"></div>' +
+    '<div class="contagem">Mande uma foto ou um áudio como prova.</div>';
+  o.el = el;
+  var mini = el.querySelector('.miniaturas'), auds = el.querySelector('.audios'), cont = el.querySelector('.contagem');
+  function atualizar() {
+    var f = qtd(o.arquivos, 'foto') + qtd(o.arquivos, 'video'), a = qtd(o.arquivos, 'audio');
+    cont.textContent = (f || a) ? f + ' foto(s)/vídeo(s) e ' + a + ' áudio(s).' : 'Mande uma foto ou um áudio como prova.';
+    cont.classList.remove('erro');
+  }
+  [].forEach.call(el.querySelectorAll('input[type=file]'), function (inp) {
+    inp.addEventListener('change', function () { lerArquivos(this.files, o.arquivos, mini, atualizar); this.value = ''; });
+  });
+  var bAudio = el.querySelector('button.peq');
+  bAudio.onclick = function () { gravarAudio(bAudio, o.arquivos, auds, 'Áudio'); };
+  new MutationObserver(atualizar).observe(auds, { childList: true });
+  el.querySelector('.remover').onclick = function () {
+    if (gravando && gravando.botao === bAudio) { alert('Pare a gravação antes de remover.'); return; }
+    if ((o.arquivos.length || el.querySelector('textarea').value.trim()) && !confirm('Remover esta ocorrência?')) return;
+    ocorrencias = ocorrencias.filter(function (x) { return x !== o; });
+    el.remove();
+  };
+  ocorrencias.push(o);
+  $('listaOcorr').appendChild(el);
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 /* ---------- envio ---------- */
@@ -158,32 +234,52 @@ function paraBase64(blob) {
 
 function enviar() {
   if (enviando) return;
-  if (gravador && gravador.state === 'recording') { $('aviso').textContent = 'Pare a gravação do áudio antes de enviar.'; return; }
+  if (gravando) { $('aviso').textContent = 'Pare a gravação do áudio antes de enviar.'; return; }
   if (!unidade) { $('aviso').textContent = 'Escolha a unidade (passo 1).'; window.scrollTo(0, 0); return; }
   tipo = $('tipoTexto').value.trim();
-  if (!tipo) { $('aviso').textContent = 'Escreva o que é (passo 2).'; return; }
+  if (!tipo) { $('aviso').textContent = cfg.textoLivre ? 'Escreva o que é (passo 2).' : 'Escolha o tipo de faxina (passo 2).'; return; }
+  for (var i = 0; i < ocorrencias.length; i++) {
+    var o = ocorrencias[i];
+    if (!o.arquivos.length) {
+      var c = o.el.querySelector('.contagem');
+      c.textContent = 'Falta a prova: mande uma foto ou um áudio.'; c.classList.add('erro');
+      o.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('aviso').textContent = 'Uma ocorrência está sem foto ou áudio.';
+      return;
+    }
+  }
   var obs = $('obs').value.trim();
-  if (!arquivos.length && !obs) { $('aviso').textContent = 'Mande pelo menos uma foto, um áudio ou uma observação.'; return; }
+  if (!arquivos.length && !obs && !ocorrencias.length) { $('aviso').textContent = 'Mande pelo menos uma foto, um áudio ou uma observação.'; return; }
+
+  // monta a fila: arquivos gerais + arquivos e explicação de cada ocorrência
+  var fila = [];
+  arquivos.forEach(function (a, i) { fila.push({ a: a, sub: '', nome: ('00' + (i + 1)).slice(-3) + '_' + a.nome }); });
+  var resumo = [];
+  ocorrencias.forEach(function (o, idx) {
+    var sub = 'OCORRENCIA ' + (idx + 1) + ' - ' + o.tipo;
+    var texto = o.el.querySelector('textarea').value.trim();
+    o.arquivos.forEach(function (a, i) { fila.push({ a: a, sub: sub, nome: ('00' + (i + 1)).slice(-3) + '_' + a.nome }); });
+    if (texto) fila.push({ a: { file: new Blob([texto], { type: 'text/plain' }), mime: 'text/plain', kind: 'texto' }, sub: sub, nome: 'EXPLICACAO.txt' });
+    resumo.push({ tipo: o.tipo, texto: texto, fotos: qtd(o.arquivos, 'foto') + qtd(o.arquivos, 'video'), audios: qtd(o.arquivos, 'audio') });
+  });
 
   enviando = true;
   $('telaForm').classList.add('oculto');
   $('telaEnvio').classList.remove('oculto');
   window.scrollTo(0, 0);
-  var total = arquivos.length, feitos = 0, erros = [], reg;
+  var total = fila.length, feitos = 0, erros = [], reg;
 
   api('iniciar', { unidadeId: unidade.id, tipo: tipo, observacao: obs }).then(function (r) {
     reg = r;
     $('envioTexto').textContent = 'Enviando para ' + nomeCurto(r.unidade) + '. Não feche o app.';
-    var fila = arquivos.slice(), idx = 0;
+    var fila2 = fila.slice();
     function proximo() {
-      var a = fila.shift();
-      if (!a) return Promise.resolve();
-      idx++;
-      var nome = ('00' + idx).slice(-3) + '_' + a.nome;
-      return paraBase64(a.file).then(function (b64) {
-        var dados = { pastaId: reg.pastaId, nome: nome, mime: a.mime, base64: b64 };
+      var item = fila2.shift();
+      if (!item) return Promise.resolve();
+      return paraBase64(item.a.file).then(function (b64) {
+        var dados = { pastaId: reg.pastaId, subpasta: item.sub, nome: item.nome, mime: item.a.mime, base64: b64 };
         return api('arquivo', dados).catch(function () { return api('arquivo', dados); });
-      }).then(function () {}, function () { erros.push(a.nome); }).then(function () {
+      }).then(function () {}, function () { erros.push(item.nome); }).then(function () {
         feitos++;
         $('barra').style.width = Math.round(feitos / total * 100) + '%';
         $('envioDetalhe').textContent = feitos + ' de ' + total + ' arquivos';
@@ -192,8 +288,10 @@ function enviar() {
     }
     return Promise.all(total ? [proximo(), proximo()] : []);
   }).then(function () {
-    return api('finalizar', { pastaId: reg.pastaId, unidade: reg.unidade, tipo: reg.tipo,
-      fotos: qtd('foto'), videos: qtd('video'), audios: qtd('audio'), erros: erros.length, observacao: obs });
+    // REGISTROS conta só o material da faxina; cada ocorrência tem a própria contagem
+    return api('finalizar', { pastaId: reg.pastaId, unidade: reg.unidade, predio: reg.predio || '', tipo: reg.tipo,
+      fotos: qtd(arquivos, 'foto'), videos: qtd(arquivos, 'video'), audios: qtd(arquivos, 'audio'),
+      erros: erros.length, observacao: obs, ocorrencias: resumo });
   }).then(function () {
     enviando = false;
     $('telaEnvio').classList.add('oculto');
@@ -201,10 +299,11 @@ function enviar() {
     var nome = nomeCurto(reg.unidade);
     if (erros.length) {
       $('fimTitulo').innerHTML = '<span class="erro">⚠️ Quase tudo enviado</span>';
-      $('fimTexto').innerHTML = 'Salvo em <b>' + nome + '</b>, mas ' + erros.length + ' arquivo(s) não foram: ' + erros.join(', ') + '. Mande esses de novo num novo registro.';
+      $('fimTexto').innerHTML = 'Salvo em <b>' + esc(nome) + '</b>, mas ' + erros.length + ' arquivo(s) não foram: ' + esc(erros.join(', ')) + '. Mande esses de novo num novo registro.';
     } else {
       $('fimTitulo').textContent = '✅ Tudo salvo!';
-      $('fimTexto').innerHTML = '<b>' + nome + '</b> – ' + reg.tipo + '<br>' + qtd('foto') + ' foto(s), ' + qtd('video') + ' vídeo(s), ' + qtd('audio') + ' áudio(s).';
+      $('fimTexto').innerHTML = '<b>' + esc(nome) + '</b> – ' + esc(reg.tipo) + '<br>' + total + ' arquivo(s) enviados' +
+        (ocorrencias.length ? '<br>' + ocorrencias.length + ' ocorrência(s) registrada(s).' : '.');
     }
   }).catch(function (e) {
     enviando = false;

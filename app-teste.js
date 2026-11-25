@@ -288,9 +288,9 @@ function enviar() {
     }
     return Promise.all(total ? [proximo(), proximo()] : []);
   }).then(function () {
-    var todos = arquivos.concat.apply(arquivos, ocorrencias.map(function (o) { return o.arquivos; }));
+    // REGISTROS conta só o material da faxina; cada ocorrência tem a própria contagem
     return api('finalizar', { pastaId: reg.pastaId, unidade: reg.unidade, predio: reg.predio || '', tipo: reg.tipo,
-      fotos: qtd(todos, 'foto'), videos: qtd(todos, 'video'), audios: qtd(todos, 'audio'),
+      fotos: qtd(arquivos, 'foto'), videos: qtd(arquivos, 'video'), audios: qtd(arquivos, 'audio'),
       erros: erros.length, observacao: obs, ocorrencias: resumo });
   }).then(function () {
     enviando = false;

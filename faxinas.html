@@ -40,7 +40,17 @@
   .barra div { height:100%; width:0; background:var(--verde); transition:width .3s; }
   .ok { font-size:22px; font-weight:700; color:var(--verde); }
   .erro { color:var(--vermelho); font-weight:600; }
-  .oculto { display:none; }
+  .tipos.dois button { font-size:18px; padding:20px 8px; }
+  .botoesOcorr { display:grid; gap:8px; }
+  .botoesOcorr button { font-size:18px; padding:14px; border:2px dashed #dadce0; background:#fff; border-radius:12px; text-align:left; color:#202124; }
+  .ocorrencia { border:2px solid #f2b705; background:#fffbea; border-radius:12px; padding:12px; margin-top:10px; }
+  .ocTopo { display:flex; justify-content:space-between; align-items:center; font-size:18px; }
+  .ocorrencia textarea { min-height:60px; font-size:17px; margin-top:8px; }
+  .ocBotoes { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:8px; }
+  .peq { display:block; font-size:15px; font-weight:600; padding:12px 4px; border:none; border-radius:10px; color:#fff; background:var(--azul); text-align:center; font-family:inherit; }
+  .peq.vermelho { background:var(--vermelho); }
+  .peq.cinza, .grande.cinza { background:#9aa0a6; }
+  .oculto { display:none !important; }
 </style>
 </head>
 <body data-modo="faxinas">
@@ -48,7 +58,7 @@
 <main>
   <div id="telaForm">
     <div class="card">
-      <div class="passo">1. Qual unidade?</div>
+      <div class="passo"><span class="num">1.</span> Qual unidade?</div>
       <div id="buscaBox">
         <input type="search" id="busca" placeholder="Digite o número (ex.: 1107)" autocomplete="off">
         <div class="contagem" id="carregando">Carregando unidades…</div>
@@ -62,14 +72,20 @@
     </div>
 
     <div class="card">
-      <div class="passo">2. O que &eacute; este registro?</div>
+      <div class="passo"><span class="num">2.</span> Que faxina &eacute;?</div>
       <input type="search" id="tipoTexto" placeholder="Ex.: faxina de checkout" autocomplete="off" maxlength="80">
-      <div class="contagem">Ou toque num atalho:</div>
+      <div class="contagem" id="tipoDica">Ou toque num atalho:</div>
       <div class="tipos" id="tipos"></div>
     </div>
 
+    <div class="card oculto" id="cardOcorr">
+      <div class="passo"><span class="num">3.</span> Encontrou alguma coisa? (se não, pule)</div>
+      <div class="botoesOcorr" id="botoesOcorr"></div>
+      <div id="listaOcorr"></div>
+    </div>
+
     <div class="card">
-      <div class="passo">3. Fotos e vídeos</div>
+      <div class="passo"><span class="num">3.</span> Fotos e vídeos</div>
       <label class="grande" for="camera">📷 Tirar foto</label>
       <input type="file" id="camera" accept="image/*" capture="environment">
       <label class="grande clara" for="galeria">🖼️ Escolher várias da galeria</label>
@@ -79,13 +95,13 @@
     </div>
 
     <div class="card">
-      <div class="passo">4. Áudio (fale o que viu)</div>
+      <div class="passo"><span class="num">4.</span> Áudio (fale o que viu)</div>
       <button class="grande vermelho" id="btnGravar" onclick="alternarGravacao()">● Gravar áudio</button>
       <div class="audios" id="audios"></div>
     </div>
 
     <div class="card">
-      <div class="passo">5. Observação (opcional)</div>
+      <div class="passo"><span class="num">5.</span> Observação (opcional)</div>
       <textarea id="obs" placeholder="Escreva algo se quiser"></textarea>
     </div>
 
