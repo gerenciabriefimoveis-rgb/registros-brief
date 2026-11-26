@@ -569,7 +569,7 @@ function enviar() {
         (ocorrencias.length ? '<br>' + ocorrencias.length + (cfg.pastaOcorr ? ' manutenção(ões)' : ' ocorrência(s)') + ' registrada(s).' : '.');
     }
     // comparativo com a vistoria de entrada (pré-vistoria e vistoria final)
-    if (entradaId && (cfg.compararTipos || []).indexOf(reg.tipo) >= 0) comecarComparativo(reg.pastaId);
+    aposVisita(reg.pastaId, reg.tipo, entradaId);
   }).catch(function (e) {
     enviando = false;
     manterTelaAcesa(false);
@@ -580,25 +580,58 @@ function enviar() {
 }
 
 /* ---------- comparativo com a vistoria de entrada (pré-vistoria e vistoria final) ---------- */
-function comecarComparativo(pastaId) {
+/* depois de salvar: comparativo (com a vistoria de entrada) e, na Vistoria final, o laudo em Word (se o motor mandar laudoFinal) */
+function aposVisita(pastaId, tipo, entrada) {
+  var laudo = !!cfg.laudoFinal && tipo === 'Vistoria final';
+  if (entrada && (cfg.compararTipos || []).indexOf(tipo) >= 0) comecarComparativo(pastaId, laudo ? function () { comecarLaudo(pastaId); } : null);
+  else if (laudo) comecarLaudo(pastaId);
+}
+function comecarLaudo(pastaId) {
+  var fl = $('fimLaudo');
+  if (!fl) {
+    fl = document.createElement('div'); fl.id = 'fimLaudo';
+    fl.style.cssText = 'margin-top:14px;padding:10px;border-radius:10px;background:#f1f3f4;font-size:16px';
+    $('fimComparativo').parentNode.insertBefore(fl, $('fimComparativo').nextSibling);
+  }
+  function gerar() {
+    fl.innerHTML = '⏳ Gerando o <b>laudo de vistoria final</b> (Word)… leva de 1 a 4 minutos. <b>Deixe o app aberto</b> até aparecer o link.';
+    manterTelaAcesa(true);
+    api('laudo', { pastaId: pastaId }).then(function (c) {
+      manterTelaAcesa(false);
+      if (c.feito) fl.innerHTML = '✅ Laudo de vistoria final pronto: <a target="_blank" style="color:var(--azul);font-weight:600" href="' + esc(c.link) + '">abrir o laudo (Word)</a>' +
+        '<br>É um rascunho: revise e complete antes de assinar.';
+      else falhou(c.motivo || '');
+    }).catch(function (e) { manterTelaAcesa(false); falhou(e.message || String(e)); });
+  }
+  function falhou(motivo) {
+    fl.innerHTML = '⚠️ O laudo não saiu: ' + esc(motivo) + '<br>As fotos já estão salvas. <button class="grande" style="margin-top:10px">🔁 Tentar o laudo de novo</button>';
+    fl.querySelector('button').onclick = gerar;
+  }
+  gerar();
+}
+
+function comecarComparativo(pastaId, depois) {
   var fc = $('fimComparativo');
   fc.classList.remove('oculto');
   function gerar() {
     fc.innerHTML = '⏳ Gerando o <b>comparativo</b> com a vistoria de entrada… leva de 1 a 4 minutos. ' +
-      '<b>Deixe o app aberto</b> até aparecer o link do PDF.';
+      '<b>Deixe o app aberto</b> até aparecer o link.';
     manterTelaAcesa(true);
     api('comparar', { pastaId: pastaId }).then(function (c) {
       manterTelaAcesa(false);
       if (c.feito) {
-        fc.innerHTML = '✅ Comparativo pronto' + (c.fotos ? ' (' + c.fotos + ' fotos analisadas)' : '') + ': <a target="_blank" href="' + esc(c.link) + '">abrir o PDF</a>' +
+        fc.innerHTML = '✅ Comparativo pronto' + (c.fotos ? ' (' + c.fotos + ' fotos analisadas)' : '') + ': <a target="_blank" href="' + esc(c.link) + '">abrir o comparativo</a>' +
           '<br>Comparado com: <a target="_blank" href="' + esc(c.laudoLink) + '">' + esc(c.laudo) + '</a>';
+        seguir();
       } else falhou(c.motivo || '');
     }).catch(function (e) { manterTelaAcesa(false); falhou(e.message || String(e)); });
   }
+  function seguir() { if (depois) { var d = depois; depois = null; d(); } }
   function falhou(motivo) {
     fc.innerHTML = '⚠️ O comparativo não saiu: ' + esc(motivo) + '<br>As fotos já estão salvas. ' +
       '<button class="grande" style="margin-top:10px">🔁 Tentar o comparativo de novo</button>';
     fc.querySelector('button').onclick = gerar;
+    seguir();
   }
   gerar();
 }
@@ -882,7 +915,7 @@ function finalizarComodos() {
         '<br>Data da visita: <b>' + vist.dataVisita.split('-').reverse().join('/') + '</b>' +
         '<br>' + feitos.length + ' cômodo(s): ' + esc(feitos.map(function (c) { return c.nome + ' (' + c.enviado.fotos + ')'; }).join(', ')) +
         (manutEnviadas.length ? '<br>' + manutEnviadas.length + ' manutenção(ões) registrada(s).' : '');
-      if (vist.entradaId) comecarComparativo(vist.pastaId);
+      aposVisita(vist.pastaId, vist.tipo, vist.entradaId);
     });
   }).catch(function (e) {
     enviando = false;
