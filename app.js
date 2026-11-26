@@ -90,6 +90,7 @@ function aplicarConfig(c) {
     });
   }
   numerarPassos();
+  if (c.comodos && c.comodos.length && $('cardAndamento')) verAndamento();
 }
 function numerarPassos() {
   var n = 0;
@@ -262,6 +263,7 @@ function responsavelAtual() {
 function marcarAtalho() {
   var v = $('tipoTexto').value.trim();
   [].forEach.call($('tipos').children, function (x) { x.classList.toggle('sel', x.textContent === v); });
+  atualizarTelaTipo();
 }
 $('tipoTexto').addEventListener('input', function () { marcarAtalho(); $('aviso').textContent = ''; });
 
@@ -438,6 +440,7 @@ document.addEventListener('visibilitychange', function () {
 
 function enviar() {
   if (enviando) return;
+  if (modoComodos()) return finalizarComodos();
   if (gravando) { $('aviso').textContent = 'Pare a gravação do áudio antes de enviar.'; return; }
   if (!unidade) { $('aviso').textContent = 'Escolha a unidade (passo 1).'; window.scrollTo(0, 0); return; }
   if (cfg.locacoes && unidade.id !== 'outra' && !locacao) {
@@ -566,28 +569,7 @@ function enviar() {
         (ocorrencias.length ? '<br>' + ocorrencias.length + (cfg.pastaOcorr ? ' manutenção(ões)' : ' ocorrência(s)') + ' registrada(s).' : '.');
     }
     // comparativo com a vistoria de entrada (pré-vistoria e vistoria final)
-    if (entradaId && (cfg.compararTipos || []).indexOf(reg.tipo) >= 0) {
-      var fc = $('fimComparativo');
-      fc.classList.remove('oculto');
-      var gerarComparativo = function () {
-        fc.innerHTML = '⏳ Gerando o <b>comparativo</b> com a vistoria de entrada… leva de 1 a 4 minutos. ' +
-          '<b>Deixe o app aberto</b> até aparecer o link do PDF.';
-        manterTelaAcesa(true);
-        api('comparar', { pastaId: reg.pastaId }).then(function (c) {
-          manterTelaAcesa(false);
-          if (c.feito) {
-            fc.innerHTML = '✅ Comparativo pronto (' + c.fotos + ' fotos analisadas): <a target="_blank" href="' + esc(c.link) + '">abrir o PDF</a>' +
-              '<br>Comparado com: <a target="_blank" href="' + esc(c.laudoLink) + '">' + esc(c.laudo) + '</a>';
-          } else falhou(c.motivo || '');
-        }).catch(function (e) { manterTelaAcesa(false); falhou(e.message || String(e)); });
-      };
-      var falhou = function (motivo) {
-        fc.innerHTML = '⚠️ O comparativo não saiu: ' + esc(motivo) + '<br>As fotos já estão salvas. ' +
-          '<button class="grande" style="margin-top:10px">🔁 Tentar o comparativo de novo</button>';
-        fc.querySelector('button').onclick = gerarComparativo;
-      };
-      gerarComparativo();
-    }
+    if (entradaId && (cfg.compararTipos || []).indexOf(reg.tipo) >= 0) comecarComparativo(reg.pastaId);
   }).catch(function (e) {
     enviando = false;
     manterTelaAcesa(false);
@@ -595,6 +577,379 @@ function enviar() {
     $('telaForm').classList.remove('oculto');
     $('aviso').textContent = 'Não consegui enviar: ' + (e && e.message ? e.message : e) + ' Verifique a internet e toque em Enviar de novo.';
   });
+}
+
+/* ---------- comparativo com a vistoria de entrada (pré-vistoria e vistoria final) ---------- */
+function comecarComparativo(pastaId) {
+  var fc = $('fimComparativo');
+  fc.classList.remove('oculto');
+  function gerar() {
+    fc.innerHTML = '⏳ Gerando o <b>comparativo</b> com a vistoria de entrada… leva de 1 a 4 minutos. ' +
+      '<b>Deixe o app aberto</b> até aparecer o link do PDF.';
+    manterTelaAcesa(true);
+    api('comparar', { pastaId: pastaId }).then(function (c) {
+      manterTelaAcesa(false);
+      if (c.feito) {
+        fc.innerHTML = '✅ Comparativo pronto' + (c.fotos ? ' (' + c.fotos + ' fotos analisadas)' : '') + ': <a target="_blank" href="' + esc(c.link) + '">abrir o PDF</a>' +
+          '<br>Comparado com: <a target="_blank" href="' + esc(c.laudoLink) + '">' + esc(c.laudo) + '</a>';
+      } else falhou(c.motivo || '');
+    }).catch(function (e) { manterTelaAcesa(false); falhou(e.message || String(e)); });
+  }
+  function falhou(motivo) {
+    fc.innerHTML = '⚠️ O comparativo não saiu: ' + esc(motivo) + '<br>As fotos já estão salvas. ' +
+      '<button class="grande" style="margin-top:10px">🔁 Tentar o comparativo de novo</button>';
+    fc.querySelector('button').onclick = gerar;
+  }
+  gerar();
+}
+
+/* =====================================================================
+   VISTORIA POR CÔMODOS (pré-vistoria e vistoria final, quando o motor manda "comodos")
+   Cada cômodo vira uma subpasta ("01 SALA", "02 QUARTO 1"…) e sobe na hora em que a pessoa toca
+   "Enviar este cômodo". A pasta da visita é criada no 1º cômodo enviado. O andamento fica guardado
+   no celular: se o app fechar, dá para continuar de onde parou.
+   ===================================================================== */
+var comodos = [], vist = null, seqPasta = 0, seqManut = 0, manutEnviadas = [], contComodo = {}, filaEnvio = Promise.resolve();
+var CHAVE_ANDAMENTO = 'vist_andamento_' + MODO;
+
+function modoComodos() {
+  return !!(cfg.comodos && cfg.comodos.length && (cfg.comodosTipos || []).indexOf($('tipoTexto').value.trim()) >= 0);
+}
+function atualizarTelaTipo() {
+  if (!$('cardComodos')) return;
+  var on = modoComodos();
+  $('camera').closest('.card').classList.toggle('oculto', on);
+  $('btnGravar').closest('.card').classList.toggle('oculto', on);
+  if (cfg.ocorrencias && cfg.ocorrencias.length) $('cardOcorr').classList.toggle('oculto', on);
+  $('cardComodos').classList.toggle('oculto', !on);
+  $('btnEnviar').textContent = on ? '🏁 Finalizar vistoria' : '✅ Enviar tudo';
+  if (on && !$('comodosBotoes').children.length) montarBotoesComodos();
+  numerarPassos();
+}
+function montarBotoesComodos() {
+  cfg.comodos.forEach(function (d) {
+    var b = document.createElement('button');
+    b.textContent = d.livre ? '➕ ' + d.nome : (d.multi ? d.nome + ' (+)' : d.nome);
+    b.onclick = function () { adicionarComodo(d); };
+    $('comodosBotoes').appendChild(b);
+  });
+}
+function adicionarComodo(d) {
+  var nome = d.nome;
+  if (d.livre) {
+    nome = (prompt('Nome do cômodo (ex.: Escritório, Hall, Closet):') || '').trim();
+    if (!nome) return;
+  } else if (d.multi) {
+    contComodo[d.nome] = (contComodo[d.nome] || 0) + 1;
+    nome = d.nome + ' ' + contComodo[d.nome];
+  } else {
+    var ja = comodos.filter(function (c) { return c.nome === d.nome; })[0];
+    if (ja) { ja.el.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+  }
+  var c = criarComodo(nome);
+  if (d.banheiro) criarComodo(d.banheiro + ' ' + contComodo[d.nome]);   // Suíte 2 → Banheiro suíte 2
+  c.el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+function criarComodo(nome, salvo) {
+  var c = salvo || { nome: nome, pasta: ('0' + (++seqPasta)).slice(-2) + ' ' + nome.toUpperCase(), enviado: { fotos: 0, videos: 0, audios: 0 }, nArq: 0, nTxt: 0 };
+  c.arquivos = []; c.manut = [];
+  var el = document.createElement('div');
+  el.className = 'comodo';
+  el.innerHTML =
+    '<div class="ocTopo"><b>🏠 ' + esc(c.nome) + '</b><button class="link remover">Remover</button></div>' +
+    '<div class="contagem estado"></div>' +
+    '<div class="ocBotoes">' +
+    '<label class="peq">📷 Foto<input type="file" accept="image/*" capture="environment"></label>' +
+    '<label class="peq">🖼️ Galeria<input type="file" accept="image/*,video/*" multiple></label>' +
+    '<button class="peq vermelho">● Áudio</button></div>' +
+    '<div class="miniaturas"></div><div class="audios"></div>' +
+    '<textarea placeholder="Observação deste cômodo (opcional)"></textarea>' +
+    '<div class="manuts"></div>' +
+    '<button class="peq cinza addManut" style="width:100%;margin-top:8px">🔧 Registrar manutenção neste cômodo</button>' +
+    '<button class="grande verde enviarC">✅ Enviar este cômodo</button>';
+  c.el = el;
+  var mini = el.querySelector('.miniaturas'), auds = el.querySelector('.audios');
+  [].forEach.call(el.querySelectorAll('.ocBotoes input[type=file]'), function (inp) {
+    inp.addEventListener('change', function () { lerArquivos(this.files, c.arquivos, mini, function () { estadoComodo(c); }); this.value = ''; });
+  });
+  var bAudio = el.querySelector('.ocBotoes button');
+  bAudio.onclick = function () { gravarAudio(bAudio, c.arquivos, auds, 'Áudio'); };
+  new MutationObserver(function () { estadoComodo(c); }).observe(auds, { childList: true });
+  el.querySelector('.addManut').onclick = function () { novaManutComodo(c); };
+  el.querySelector('.enviarC').onclick = function () { enviarComodo(c); };
+  el.querySelector('.remover').onclick = function () {
+    if (c.enviado.fotos || c.enviado.videos || c.enviado.audios) { alert('Este cômodo já foi enviado e está salvo no Drive.'); return; }
+    if ((c.arquivos.length || c.manut.length) && !confirm('Remover ' + c.nome + ' e as fotos dele?')) return;
+    comodos = comodos.filter(function (x) { return x !== c; });
+    el.remove();
+    var m = c.nome.match(/^(.*) (\d+)$/);   // tirou o último "Quarto 2": o próximo volta a ser Quarto 2
+    if (m && contComodo[m[1]] === +m[2]) contComodo[m[1]]--;
+  };
+  comodos.push(c);
+  $('listaComodos').appendChild(el);
+  estadoComodo(c);
+  return c;
+}
+function estadoComodo(c, texto) {
+  var e = c.el.querySelector('.estado'), env = c.enviado;
+  var feito = env.fotos + env.videos + env.audios;
+  var pend = c.arquivos.length;
+  c.el.classList.toggle('enviado', feito > 0 && !pend && !c.manut.length);
+  e.classList.remove('erro');
+  e.innerHTML = texto || ((feito ? '✅ Enviado: ' + env.fotos + ' foto(s)' + (env.videos ? ', ' + env.videos + ' vídeo(s)' : '') + (env.audios ? ', ' + env.audios + ' áudio(s)' : '') + '. ' : '') +
+    (pend ? pend + ' arquivo(s) para enviar.' : (feito ? 'Pode adicionar mais se precisar.' : 'Tire as fotos deste cômodo.')));
+  c.el.querySelector('.enviarC').textContent = feito ? '✅ Enviar o que foi adicionado' : '✅ Enviar este cômodo';
+}
+function novaManutComodo(c) {
+  var m = { arquivos: [] };
+  var el = document.createElement('div');
+  el.className = 'ocorrencia';
+  el.innerHTML =
+    '<div class="ocTopo"><b>🔧 Manutenção (' + esc(c.nome) + ')</b><button class="link remover">Remover</button></div>' +
+    '<textarea placeholder="' + esc(txt('ocorrPlaceholder', 'Descreva a manutenção')) + '"></textarea>' +
+    '<div class="ocBotoes">' +
+    '<label class="peq">📷 Foto<input type="file" accept="image/*" capture="environment"></label>' +
+    '<label class="peq">🖼️ Galeria<input type="file" accept="image/*,video/*" multiple></label>' +
+    '<button class="peq vermelho">● Áudio</button></div>' +
+    '<div class="miniaturas"></div><div class="audios"></div><div class="contagem">' + esc(txt('ocorrProva', 'Mande uma foto ou um áudio.')) + '</div>';
+  m.el = el;
+  var mini = el.querySelector('.miniaturas'), auds = el.querySelector('.audios'), cont = el.querySelector('.contagem');
+  function atualizar() {
+    var f = qtd(m.arquivos, 'foto') + qtd(m.arquivos, 'video'), a = qtd(m.arquivos, 'audio');
+    cont.textContent = (f || a) ? f + ' foto(s)/vídeo(s) e ' + a + ' áudio(s).' : txt('ocorrProva', 'Mande uma foto ou um áudio.');
+    cont.classList.remove('erro');
+  }
+  [].forEach.call(el.querySelectorAll('input[type=file]'), function (inp) {
+    inp.addEventListener('change', function () { lerArquivos(this.files, m.arquivos, mini, atualizar); this.value = ''; });
+  });
+  var bA = el.querySelector('.ocBotoes button');
+  bA.onclick = function () { gravarAudio(bA, m.arquivos, auds, 'Áudio'); };
+  new MutationObserver(atualizar).observe(auds, { childList: true });
+  el.querySelector('.remover').onclick = function () {
+    if ((m.arquivos.length || el.querySelector('textarea').value.trim()) && !confirm('Remover esta manutenção?')) return;
+    c.manut = c.manut.filter(function (x) { return x !== m; });
+    el.remove(); estadoComodo(c);
+  };
+  c.manut.push(m);
+  c.el.querySelector('.manuts').appendChild(el);
+  estadoComodo(c);
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+/** Confere o cabeçalho (unidade, locação, data, quem, tipo) e cria a pasta da visita no 1º cômodo enviado. */
+function garantirInicio() {
+  if (vist) return Promise.resolve(vist);
+  var erro = '';
+  if (!unidade) erro = 'Escolha a unidade (passo 1).';
+  else if (cfg.locacoes && unidade.id !== 'outra' && !locacao) erro = 'Escolha a locação (inquilino).';
+  else if (cfg.pedirData && !$('dataVisita').value) erro = 'Escolha a data da visita.';
+  else if (cfg.responsaveis && cfg.responsaveis.length && !responsavelAtual()) erro = txt('respAviso', 'Escolha quem fez a visita.');
+  if (erro) { $('aviso').textContent = erro; window.scrollTo(0, 0); return Promise.reject(new Error(erro)); }
+  var dados = { unidadeId: unidade.id, unidadeTexto: unidade.id === 'outra' ? unidade.nome : '', tipo: $('tipoTexto').value.trim(),
+    observacao: '', responsavel: responsavelAtual(), dataVisita: $('dataVisita').value, locacao: locacao ? locacao.nome : '', entradaId: entradaId };
+  return api('iniciar', dados).then(function (r) {
+    vist = { pastaId: r.pastaId, unidade: r.unidade, predio: r.predio || '', tipo: r.tipo, responsavel: dados.responsavel, dataVisita: dados.dataVisita, entradaId: entradaId };
+    travarCabecalho();
+    salvarAndamento();
+    return vist;
+  });
+}
+function travarCabecalho() {
+  [].forEach.call(document.querySelectorAll('#unidadeBox .link, #locEscolhida .link'), function (b) { b.classList.add('oculto'); });
+  $('dataVisita').disabled = true; $('resp').disabled = true; $('respExtra').disabled = true;
+  [].forEach.call($('tipos').children, function (b) { b.disabled = true; });
+  if ($('entradaBox').querySelector('select')) $('entradaBox').querySelector('select').disabled = true;
+  $('travadoAviso').classList.remove('oculto');
+}
+
+/** Envia o que está pendente no cômodo (fotos, áudios, observação e as manutenções dele). Um cômodo por vez. */
+function enviarComodo(c) {
+  if (gravando) { alert('Pare a gravação do áudio antes de enviar.'); return Promise.resolve(false); }
+  var texto = c.el.querySelector('textarea').value.trim();
+  for (var i = 0; i < c.manut.length; i++) {
+    if (!c.manut[i].arquivos.length) {
+      var ct = c.manut[i].el.querySelector('.contagem');
+      ct.textContent = 'Falta a prova: mande uma foto ou um áudio.'; ct.classList.add('erro');
+      c.manut[i].el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return Promise.resolve(false);
+    }
+  }
+  if (!c.arquivos.length && !c.manut.length && !texto) {
+    estadoComodo(c, '<span class="erro">Tire pelo menos uma foto deste cômodo.</span>');
+    return Promise.resolve(false);
+  }
+  var botao = c.el.querySelector('.enviarC');
+  botao.disabled = true;
+  estadoComodo(c, '⏳ Na fila para enviar…');
+  var p = filaEnvio.then(function () {
+    return garantirInicio().then(function () {
+      enviando = true;
+      manterTelaAcesa(true);
+      var fila = [];
+      c.arquivos.forEach(function (a) { fila.push({ a: a, sub: c.pasta, nome: ('00' + (++c.nArq)).slice(-3) + '_' + a.nome, dono: c }); });
+      if (texto) {
+        c.nTxt++;
+        fila.push({ a: { file: new Blob([texto], { type: 'text/plain' }), mime: 'text/plain', kind: 'texto' }, sub: c.pasta,
+          nome: 'OBSERVACAO' + (c.nTxt > 1 ? ' ' + c.nTxt : '') + '.txt', dono: c, ehTexto: true });
+      }
+      var manutsAgora = c.manut.slice();
+      manutsAgora.forEach(function (m) {
+        m.n = ++seqManut;
+        var sub = (cfg.pastaOcorr || 'MANUTENCAO') + ' ' + m.n, tm = m.el.querySelector('textarea').value.trim();
+        m.arquivos.forEach(function (a, k) { fila.push({ a: a, sub: sub, nome: ('00' + (k + 1)).slice(-3) + '_' + a.nome, dono: m }); });
+        fila.push({ a: { file: new Blob(['Cômodo: ' + c.nome + (tm ? '\n' + tm : '')], { type: 'text/plain' }), mime: 'text/plain', kind: 'texto' }, sub: sub, nome: 'EXPLICACAO.txt', dono: m, ehTexto: true });
+        manutEnviadas.push({ n: m.n, comodo: c.nome, tipo: 'Precisa de manutenção', texto: tm,
+          fotos: qtd(m.arquivos, 'foto') + qtd(m.arquivos, 'video'), audios: qtd(m.arquivos, 'audio') });
+      });
+      var total = fila.length, feitos = 0, falhas = [];
+      function proximo() {
+        var item = fila.shift();
+        if (!item) return Promise.resolve();
+        return comprimirFoto(item.a).then(function (cp) {
+          return paraBase64(cp.blob).then(function (b64) {
+            var nome = cp.mime === 'image/jpeg' && !/\.jpe?g$/i.test(item.nome) ? item.nome.replace(/\.[^.]*$/, '') + '.jpg' : item.nome;
+            return enviarComTentativas({ pastaId: vist.pastaId, subpasta: item.sub, nome: nome, mime: cp.mime, base64: b64 });
+          });
+        }).then(function () {
+          feitos++;
+          if (item.dono === c && !item.ehTexto) {
+            c.enviado[item.a.kind === 'audio' ? 'audios' : (item.a.kind === 'video' ? 'videos' : 'fotos')]++;
+            c.arquivos = c.arquivos.filter(function (x) { return x !== item.a; });
+          }
+        }, function () { falhas.push(item); }).then(function () {
+          estadoComodo(c, '⏳ Enviando ' + c.nome + ': ' + feitos + ' de ' + total + '…');
+          return proximo();
+        });
+      }
+      return Promise.all([proximo(), proximo()]).then(function () {
+        // manutenções e observação já foram (mesmo que alguma foto delas tenha falhado, a pasta existe)
+        c.manut = []; c.el.querySelector('.manuts').innerHTML = '';
+        if (texto && !falhas.some(function (f) { return f.ehTexto && f.dono === c; })) c.el.querySelector('textarea').value = '';
+        var mini = c.el.querySelector('.miniaturas');
+        mini.innerHTML = '';
+        c.arquivos.forEach(function (a) {
+          var d = document.createElement('div');
+          if (a.kind === 'foto') d.style.backgroundImage = 'url(' + URL.createObjectURL(a.file) + ')'; else d.textContent = a.kind === 'audio' ? '🎤' : '🎬';
+          mini.appendChild(d);
+        });
+        c.el.querySelector('.audios').innerHTML = '';
+        salvarAndamento();
+        if (falhas.length) estadoComodo(c, '<span class="erro">' + falhas.length + ' arquivo(s) não subiram (internet?). Toque em Enviar de novo.</span>');
+        else estadoComodo(c);
+        return !falhas.length;
+      });
+    });
+  }).catch(function (e) {
+    estadoComodo(c, '<span class="erro">Não consegui enviar: ' + esc(e.message || e) + '</span>');
+    return false;
+  }).then(function (ok) {
+    botao.disabled = false;
+    enviando = false;
+    manterTelaAcesa(false);
+    return ok;
+  });
+  filaEnvio = p;
+  return p;
+}
+
+/** "Finalizar vistoria": manda o que ainda está pendente, escreve a planilha e gera o comparativo. */
+function finalizarComodos() {
+  if (gravando) { $('aviso').textContent = 'Pare a gravação do áudio antes.'; return; }
+  var pendentes = comodos.filter(function (c) { return c.arquivos.length || c.manut.length || c.el.querySelector('textarea').value.trim(); });
+  var obs = $('obs').value.trim();
+  var cadeia = Promise.resolve(true);
+  pendentes.forEach(function (c) { cadeia = cadeia.then(function (ok) { return enviarComodo(c).then(function (k) { return ok && k; }); }); });
+  $('btnEnviar').disabled = true;
+  $('aviso').textContent = pendentes.length ? 'Enviando os cômodos que faltavam…' : '';
+  cadeia.then(function (tudoOk) {
+    if (!tudoOk) throw new Error('Algum cômodo não terminou de enviar. Veja o aviso em vermelho e toque em Enviar nele.');
+    var feitos = comodos.filter(function (c) { return c.enviado.fotos + c.enviado.videos + c.enviado.audios > 0; });
+    if (!vist || !feitos.length) throw new Error('Envie pelo menos um cômodo antes de finalizar.');
+    var soma = function (k) { return feitos.reduce(function (s, c) { return s + c.enviado[k]; }, 0); };
+    enviando = true;
+    $('aviso').textContent = 'Finalizando…';
+    return api('finalizar', { pastaId: vist.pastaId, unidade: vist.unidade, predio: vist.predio, tipo: vist.tipo, responsavel: vist.responsavel,
+      dataVisita: vist.dataVisita, fotos: soma('fotos'), videos: soma('videos'), audios: soma('audios'), erros: 0, observacao: obs,
+      ocorrencias: manutEnviadas.sort(function (a, b) { return a.n - b.n; }),
+      comodos: feitos.map(function (c) { return { nome: c.nome, fotos: c.enviado.fotos + c.enviado.videos }; }) }).then(function () {
+      enviando = false;
+      localStorage.removeItem(CHAVE_ANDAMENTO);
+      $('telaForm').classList.add('oculto');
+      $('telaFim').classList.remove('oculto');
+      window.scrollTo(0, 0);
+      $('fimTitulo').textContent = '✅ Vistoria salva!';
+      $('fimTexto').innerHTML = '<b>' + esc(nomeCurto(vist.unidade)) + '</b> – ' + esc(vist.tipo) +
+        '<br>Data da visita: <b>' + vist.dataVisita.split('-').reverse().join('/') + '</b>' +
+        '<br>' + feitos.length + ' cômodo(s): ' + esc(feitos.map(function (c) { return c.nome + ' (' + c.enviado.fotos + ')'; }).join(', ')) +
+        (manutEnviadas.length ? '<br>' + manutEnviadas.length + ' manutenção(ões) registrada(s).' : '');
+      if (vist.entradaId) comecarComparativo(vist.pastaId);
+    });
+  }).catch(function (e) {
+    enviando = false;
+    $('aviso').textContent = e.message || String(e);
+  }).then(function () { $('btnEnviar').disabled = false; });
+}
+
+/* ---------- andamento guardado no celular (para continuar depois) ---------- */
+function salvarAndamento() {
+  if (!vist) return;
+  localStorage.setItem(CHAVE_ANDAMENTO, JSON.stringify({
+    quando: Date.now(), vist: vist, unidade: unidade, locacao: locacao ? { nome: locacao.nome } : null, entradaId: entradaId,
+    tipo: $('tipoTexto').value.trim(), seqPasta: seqPasta, seqManut: seqManut, manutEnviadas: manutEnviadas, contComodo: contComodo,
+    comodos: comodos.filter(function (c) { return c.enviado.fotos + c.enviado.videos + c.enviado.audios > 0 || c.nTxt; })
+      .map(function (c) { return { nome: c.nome, pasta: c.pasta, enviado: c.enviado, nArq: c.nArq, nTxt: c.nTxt }; })
+  }));
+}
+function verAndamento() {
+  var s = null;
+  try { s = JSON.parse(localStorage.getItem(CHAVE_ANDAMENTO) || 'null'); } catch (e) {}
+  if (!s || !s.vist) return;
+  if (Date.now() - s.quando > 7 * 86400000) { localStorage.removeItem(CHAVE_ANDAMENTO); return; }
+  var box = $('cardAndamento');
+  box.classList.remove('oculto');
+  box.innerHTML = '<div class="passo">Vistoria em andamento</div>' +
+    '<div><b>' + esc(nomeCurto(s.vist.unidade)) + '</b> – ' + esc(s.vist.tipo) + (s.locacao && s.locacao.nome ? ' – ' + esc(s.locacao.nome) : '') +
+    '<br><small>' + s.comodos.length + ' cômodo(s) já enviado(s): ' + esc(s.comodos.map(function (c) { return c.nome; }).join(', ')) + '</small></div>' +
+    '<button class="grande">▶ Continuar esta vistoria</button><button class="grande cinza">Descartar e começar outra</button>';
+  var b = box.querySelectorAll('button');
+  b[0].onclick = function () { continuarAndamento(s); };
+  b[1].onclick = function () {
+    if (!confirm('Descartar? O que já foi enviado continua salvo no Drive, mas esta vistoria não será finalizada na planilha.')) return;
+    localStorage.removeItem(CHAVE_ANDAMENTO); box.classList.add('oculto');
+  };
+}
+function continuarAndamento(s) {
+  $('cardAndamento').classList.add('oculto');
+  vist = s.vist; seqManut = s.seqManut; manutEnviadas = s.manutEnviadas || [];
+  // numeração recomeça a partir dos cômodos já salvos (os que não foram enviados se perderam ao fechar o app)
+  seqPasta = 0; contComodo = {};
+  s.comodos.forEach(function (sc) {
+    seqPasta = Math.max(seqPasta, parseInt(sc.pasta, 10) || 0);
+    var m = sc.nome.match(/^(.*) (\d+)$/);
+    if (m) {
+      var base = cfg.comodos.filter(function (d) { return d.nome === m[1] || d.banheiro === m[1]; })[0];
+      if (base && base.nome === m[1]) contComodo[m[1]] = Math.max(contComodo[m[1]] || 0, +m[2]);
+    }
+  });
+  unidade = s.unidade; entradaId = s.entradaId || '';
+  $('unidadeNome').textContent = nomeCurto(unidade.nome);
+  $('unidadeGrupo').textContent = unidade.grupo && unidade.nome.indexOf(unidade.grupo) < 0 ? unidade.grupo : '';
+  $('buscaBox').classList.add('oculto'); $('unidadeBox').classList.remove('oculto');
+  if (cfg.locacoes) {
+    locacao = s.locacao || { nome: '' };
+    $('cardLoc').classList.remove('oculto'); $('locLista').innerHTML = ''; $('locCarregando').textContent = '';
+    $('locEscolhida').classList.remove('oculto'); $('locNome').textContent = locacao.nome || 'Sem inquilino';
+    $('entradaBox').textContent = entradaId ? 'Comparativo com a vistoria de entrada escolhida no início.' : '';
+  }
+  $('dataVisita').value = vist.dataVisita;
+  if (vist.responsavel) {
+    if ([].some.call($('resp').options, function (o) { return o.value === vist.responsavel; })) $('resp').value = vist.responsavel;
+    else { $('resp').value = EXTRA; $('respExtra').value = vist.responsavel; }
+  }
+  $('tipoTexto').value = vist.tipo; marcarAtalho();
+  s.comodos.forEach(function (sc) { criarComodo(sc.nome, sc); });
+  travarCabecalho();
+  $('cardComodos').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 window.addEventListener('beforeunload', function (e) {
